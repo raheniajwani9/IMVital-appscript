@@ -34,7 +34,7 @@ export default function TemplatesView({ data = [], onRefreshData }) {
           template_name: row.template_name || row.section_name || 'Standard Checklist',
           template_category: row.template_category || row.category || 'Operations',
           template_description: row.template_description || '',
-          template_instructions: row.template_instructions || row.instructions || '',
+          template_instructions: row.template_instructions || row.instructions || row.section_instructions || '',
           audit_type: row.audit_type || 'Internal Audit',
           owner: row.template_owner_id || row.owner || 'System Admin',
           applicable_locations: row.applicable_locations || row.locations || 'All Locations',
@@ -52,6 +52,7 @@ export default function TemplatesView({ data = [], onRefreshData }) {
         sec = {
           section_name: secName,
           section_order: Number(row.section_order) || 1,
+          section_instructions: row.section_instructions || '',
           questions: []
         };
         map[key].sections.push(sec);
@@ -125,6 +126,7 @@ export default function TemplatesView({ data = [], onRefreshData }) {
         list.push({
           ...q,
           section_name: sec.section_name,
+          section_instructions: sec.section_instructions,
           section_order: sec.section_order || sIdx + 1,
           display_order: list.length + 1
         });
@@ -352,35 +354,38 @@ export default function TemplatesView({ data = [], onRefreshData }) {
 
                 <div className="space-y-3">
                   {paginatedQuestions.length > 0 ? (
-                    paginatedQuestions.map((q) => (
-                      <div
-                        key={q.question_id || q.display_order}
-                        className="bg-white p-3 rounded-xl border border-slate-200/60 text-xs shadow-xs space-y-2"
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="text-slate-700 font-bold flex items-center gap-2 min-w-0">
-                            <span className="w-5 h-5 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center text-[10px] font-bold shrink-0">
-                              {q.display_order}
+                    paginatedQuestions.map((q) => {
+                      const instructions = q.section_instructions || selectedTemplate.template_instructions;
+                      return (
+                        <div
+                          key={q.question_id || q.display_order}
+                          className="bg-white p-3 rounded-xl border border-slate-200/60 text-xs shadow-xs space-y-2"
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-700 font-bold flex items-center gap-2 min-w-0">
+                              <span className="w-5 h-5 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center text-[10px] font-bold shrink-0">
+                                {q.display_order}
+                              </span>
+                              <span className="truncate" title={q.question_text}>
+                                {q.question_text}
+                              </span>
                             </span>
-                            <span className="truncate" title={q.question_text}>
-                              {q.question_text}
+                            <span className="text-[9px] font-bold px-2 py-0.5 bg-slate-100 text-slate-500 rounded uppercase shrink-0 ml-2">
+                              {q.response_type || 'YES_NO'}
                             </span>
-                          </span>
-                          <span className="text-[9px] font-bold px-2 py-0.5 bg-slate-100 text-slate-500 rounded uppercase shrink-0 ml-2">
-                            {q.response_type || 'YES_NO'}
-                          </span>
-                        </div>
-
-                        {selectedTemplate.template_instructions && (
-                          <div className="ml-7 p-2.5 bg-slate-50 border border-slate-100 rounded-lg flex items-start gap-2">
-                            <Info className="w-3.5 h-3.5 text-blue-500 shrink-0 mt-0.5" />
-                            <p className="text-[11px] text-slate-500 leading-normal font-medium">
-                              {selectedTemplate.template_instructions}
-                            </p>
                           </div>
-                        )}
-                      </div>
-                    ))
+
+                          {instructions && (
+                            <div className="ml-7 p-2.5 bg-slate-50 border border-slate-100 rounded-lg flex items-start gap-2">
+                              <Info className="w-3.5 h-3.5 text-blue-500 shrink-0 mt-0.5" />
+                              <p className="text-[11px] text-slate-500 leading-normal font-medium">
+                                "Instructions: {instructions}"
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })
                   ) : (
                     <div className="text-slate-400 text-[11px] italic py-4 text-center">
                       No questions available in this template.

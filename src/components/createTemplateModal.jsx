@@ -31,9 +31,9 @@ export default function CreateTemplateModal({ existingTemplates = [], onClose, o
 
   const [formData, setFormData] = useState({
     template_name: '',
-    template_code: '',
     template_category: categories[0] || 'Operations',
     template_description: '',
+    template_instructions: '',
     audit_type: 'Internal Audit',
     template_owner_id: '',
     applicable_locations: 'All Locations',
@@ -44,7 +44,8 @@ export default function CreateTemplateModal({ existingTemplates = [], onClose, o
       {
         section_name: 'General Inspection',
         section_order: 1,
-        questions: [{ question_text: '', response_type: 'YES_NO', points: 1, instructions: '', showInstructions: false }]
+        section_instructions: '',
+        questions: [{ question_text: '', response_type: 'YES_NO', points: 1, is_required: true, instructions: '', showInstructions: false }]
       }
     ]
   });
@@ -72,7 +73,8 @@ export default function CreateTemplateModal({ existingTemplates = [], onClose, o
         {
           section_name: `Section ${prev.sections.length + 1}`,
           section_order: prev.sections.length + 1,
-          questions: [{ question_text: '', response_type: 'YES_NO', points: 1, instructions: '', showInstructions: false }]
+          section_instructions: '',
+          questions: [{ question_text: '', response_type: 'YES_NO', points: 1, is_required: true, instructions: '', showInstructions: false }]
         }
       ]
     }));
@@ -101,7 +103,7 @@ export default function CreateTemplateModal({ existingTemplates = [], onClose, o
               ...sec,
               questions: [
                 ...sec.questions,
-                { question_text: '', response_type: 'YES_NO', points: 1, instructions: '', showInstructions: false }
+                { question_text: '', response_type: 'YES_NO', points: 1, is_required: true, instructions: '', showInstructions: false }
               ]
             }
           : sec
@@ -146,20 +148,38 @@ export default function CreateTemplateModal({ existingTemplates = [], onClose, o
   const handleSubmit = (e) => {
     e.preventDefault();
 
+    // Extract all instructions entered across questions
+    const allInstructions = formData.sections
+      .flatMap((s) => s.questions)
+      .map((q) => q.instructions)
+      .filter(Boolean);
+
+    const fallbackInstruction = allInstructions.join(' | ') || formData.template_instructions || '';
+
     const cleanedPayload = {
       ...formData,
+      template_instructions: fallbackInstruction,
       estimated_minutes: Number(formData.estimated_minutes) || 0,
-      sections: formData.sections.map((sec, secIdx) => ({
-        ...sec,
-        section_order: secIdx + 1,
-        questions: sec.questions
-          .filter((q) => q.question_text.trim() !== '')
-          .map((q) => ({
-            ...q,
-            points: Number(q.points) || 0,
-            template_instructions: q.instructions || formData.template_instructions || ''
-          }))
-      }))
+      sections: formData.sections.map((sec, secIdx) => {
+        const secInstruction = sec.questions.map((q) => q.instructions).filter(Boolean).join(' | ') || fallbackInstruction;
+
+        return {
+          ...sec,
+          section_order: secIdx + 1,
+          section_instructions: secInstruction,
+          questions: sec.questions
+            .filter((q) => q.question_text.trim() !== '')
+            .map((q) => ({
+              ...q,
+              required: q.is_required ? true : false,
+              is_required: q.is_required,
+              points: Number(q.points) || 0,
+              template_instructions: q.instructions || secInstruction || fallbackInstruction,
+              section_instructions: q.instructions || secInstruction || '',
+              instructions: q.instructions || ''
+            }))
+        };
+      })
     };
 
     setSubmitting(true);
@@ -201,18 +221,6 @@ export default function CreateTemplateModal({ existingTemplates = [], onClose, o
         <form onSubmit={handleSubmit} className="mt-4 space-y-4">
           {/* Header Metadata Inputs */}
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Template Code</label>
-              <input
-                required
-                placeholder="e.g. IMV-DSR-001"
-                type="text"
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs focus:ring-2 focus:ring-blue-500 font-semibold"
-                value={formData.template_code}
-                onChange={(e) => handleChange('template_code', e.target.value)}
-              />
-            </div>
-
             <div>
               <div className="flex items-center justify-between mb-1">
                 <label className="block text-[11px] font-bold text-slate-600 uppercase">Category</label>
@@ -350,13 +358,23 @@ export default function CreateTemplateModal({ existingTemplates = [], onClose, o
                 <div className="space-y-3">
                   {sec.questions.map((q, qIdx) => (
                     <div key={qIdx} className="bg-white border border-slate-200/80 rounded-xl p-3 space-y-2">
-                      {/* Top Bar of Question Card with "Add Instruction" on the Right */}
+                      {/* Top Bar of Question Card */}
                       <div className="flex items-center justify-between">
                         <span className="text-[10px] font-bold text-slate-400">
                           Q{qIdx + 1}
                         </span>
 
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-3">
+                          <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              checked={q.is_required ?? true}
+                              onChange={(e) => updateQuestion(sIdx, qIdx, 'is_required', e.target.checked)}
+                              className="w-3.5 h-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                            />
+                            <span className="text-[10px] font-bold text-slate-600 uppercase">Required</span>
+                          </label>
+
                           <button
                             type="button"
                             onClick={() => toggleQuestionInstructions(sIdx, qIdx)}
@@ -377,7 +395,7 @@ export default function CreateTemplateModal({ existingTemplates = [], onClose, o
                           )}
                         </div>
                       </div>
-=
+
                       <input
                         required
                         placeholder="Question details..."
