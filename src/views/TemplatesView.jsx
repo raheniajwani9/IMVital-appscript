@@ -1,25 +1,44 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Plus, Eye, MoreHorizontal, FileText, Pencil, Trash2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Plus, Eye, MoreHorizontal, FileText, Pencil, Trash2, ChevronLeft, ChevronRight, Info, MapPin, User, Calendar, ShieldCheck } from 'lucide-react';
 import CreateTemplateModal from '../components/createTemplateModal';
 import UpdateTemplateModal from '../components/UpdateTemplateModal';
 import DeleteTemplateModal from '../components/DeleteTemplateModal';
 
 export default function TemplatesView({ data = [], onRefreshData }) {
+
   const groupedTemplates = useMemo(() => {
     if (!Array.isArray(data) || data.length === 0) return [];
     if (data[0]?.sections) return data;
 
+    const cleanData = data.filter((row) => {
+      const id = String(row.template_id || row.template_code || '');
+      const name = String(row.template_name || '');
+      return !id.startsWith('CAT-') && name !== 'Category Metadata Entry';
+    });
+
     const map = {};
-    data.forEach((row) => {
+    cleanData.forEach((row) => {
       const key = row.template_id || row.template_code || row.template_name;
       if (!key) return;
 
       if (!map[key]) {
+        // Format ISO Date String cleanly (e.g. 2026-08-30)
+        let formattedDate = row.effective_date || '';
+        if (formattedDate && typeof formattedDate === 'string' && formattedDate.includes('T')) {
+          formattedDate = formattedDate.split('T')[0];
+        }
+
         map[key] = {
           template_id: key,
           template_code: row.template_code || key,
           template_name: row.template_name || row.section_name || 'Standard Checklist',
-          template_description: row.template_description || row.section_instructions || '',
+          template_category: row.template_category || row.category || 'Operations',
+          template_description: row.template_description || '',
+          template_instructions: row.template_instructions || row.instructions || '',
+          audit_type: row.audit_type || 'Internal Audit',
+          owner: row.template_owner_id || row.owner || 'System Admin',
+          applicable_locations: row.applicable_locations || row.locations || 'All Locations',
+          effective_date: formattedDate,
           template_status: row.template_status || 'Draft',
           template_version: row.template_version || 'v1.0',
           estimated_minutes: Number(row.estimated_minutes) || 15,
@@ -280,14 +299,40 @@ export default function TemplatesView({ data = [], onRefreshData }) {
                 </span>
               </div>
 
-              <div className="mt-6 divide-y divide-slate-100 text-xs">
-                <div className="py-3 flex justify-between items-center">
-                  <span className="text-slate-400 font-medium">Template code</span>
+              <div className="mt-4 divide-y divide-slate-100 text-xs">
+                <div className="py-2.5 flex justify-between items-center">
+                  <span className="text-slate-400 font-medium flex items-center gap-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5 text-slate-400" /> Audit type
+                  </span>
                   <span className="font-bold text-slate-800">
-                    {selectedTemplate.template_code || 'N/A'}
+                    {selectedTemplate.audit_type || 'Internal Audit'}
                   </span>
                 </div>
-                <div className="py-3 flex justify-between items-center">
+                <div className="py-2.5 flex justify-between items-center">
+                  <span className="text-slate-400 font-medium flex items-center gap-1.5">
+                    <User className="w-3.5 h-3.5 text-slate-400" /> Owner
+                  </span>
+                  <span className="font-bold text-slate-800">
+                    {selectedTemplate.owner || 'N/A'}
+                  </span>
+                </div>
+                <div className="py-2.5 flex justify-between items-center">
+                  <span className="text-slate-400 font-medium flex items-center gap-1.5">
+                    <MapPin className="w-3.5 h-3.5 text-slate-400" /> Applicable locations
+                  </span>
+                  <span className="font-bold text-slate-800 truncate max-w-[160px]" title={selectedTemplate.applicable_locations}>
+                    {selectedTemplate.applicable_locations || 'All Locations'}
+                  </span>
+                </div>
+                <div className="py-2.5 flex justify-between items-center">
+                  <span className="text-slate-400 font-medium flex items-center gap-1.5">
+                    <Calendar className="w-3.5 h-3.5 text-slate-400" /> Effective date
+                  </span>
+                  <span className="font-bold text-slate-800">
+                    {selectedTemplate.effective_date || 'Immediate'}
+                  </span>
+                </div>
+                <div className="py-2.5 flex justify-between items-center">
                   <span className="text-slate-400 font-medium">Estimated duration</span>
                   <span className="font-bold text-slate-800">
                     {selectedTemplate.estimated_minutes ? `${selectedTemplate.estimated_minutes} min` : 'Unspecified'}
@@ -295,7 +340,7 @@ export default function TemplatesView({ data = [], onRefreshData }) {
                 </div>
               </div>
 
-              <div className="mt-6 border border-slate-100 rounded-2xl p-4 bg-slate-50/50 space-y-3 min-h-[160px]">
+              <div className="mt-4 border border-slate-100 rounded-2xl p-4 bg-slate-50/50 space-y-3 min-h-[140px]">
                 <div className="flex items-center justify-between text-xs pb-2 border-b border-slate-200/60">
                   <span className="font-bold text-slate-800 truncate max-w-[200px]">
                     01 · {paginatedQuestions[0]?.section_name || selectedTemplate.sections?.[0]?.section_name || 'General Inspection'}
@@ -305,24 +350,35 @@ export default function TemplatesView({ data = [], onRefreshData }) {
                   </span>
                 </div>
 
-                <div className="space-y-2">
+                <div className="space-y-3">
                   {paginatedQuestions.length > 0 ? (
                     paginatedQuestions.map((q) => (
                       <div
                         key={q.question_id || q.display_order}
-                        className="flex items-center justify-between bg-white p-2.5 rounded-xl border border-slate-200/60 text-xs shadow-xs"
+                        className="bg-white p-3 rounded-xl border border-slate-200/60 text-xs shadow-xs space-y-2"
                       >
-                        <span className="text-slate-600 font-medium flex items-center gap-2 min-w-0">
-                          <span className="w-4 h-4 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center text-[10px] font-bold shrink-0">
-                            {q.display_order}
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-700 font-bold flex items-center gap-2 min-w-0">
+                            <span className="w-5 h-5 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center text-[10px] font-bold shrink-0">
+                              {q.display_order}
+                            </span>
+                            <span className="truncate" title={q.question_text}>
+                              {q.question_text}
+                            </span>
                           </span>
-                          <span className="truncate" title={q.question_text}>
-                            {q.question_text}
+                          <span className="text-[9px] font-bold px-2 py-0.5 bg-slate-100 text-slate-500 rounded uppercase shrink-0 ml-2">
+                            {q.response_type || 'YES_NO'}
                           </span>
-                        </span>
-                        <span className="text-[9px] font-bold px-2 py-0.5 bg-slate-100 text-slate-500 rounded uppercase shrink-0 ml-2">
-                          {q.response_type || 'YES_NO'}
-                        </span>
+                        </div>
+
+                        {selectedTemplate.template_instructions && (
+                          <div className="ml-7 p-2.5 bg-slate-50 border border-slate-100 rounded-lg flex items-start gap-2">
+                            <Info className="w-3.5 h-3.5 text-blue-500 shrink-0 mt-0.5" />
+                            <p className="text-[11px] text-slate-500 leading-normal font-medium">
+                              {selectedTemplate.template_instructions}
+                            </p>
+                          </div>
+                        )}
                       </div>
                     ))
                   ) : (
@@ -367,6 +423,7 @@ export default function TemplatesView({ data = [], onRefreshData }) {
       {/* Modals */}
       {isCreateOpen && (
         <CreateTemplateModal
+          existingTemplates={groupedTemplates}
           onClose={() => setIsCreateOpen(false)}
           onCreated={() => {
             if (onRefreshData) onRefreshData();
