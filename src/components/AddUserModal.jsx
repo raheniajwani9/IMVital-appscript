@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Loader2, X, Mail, User, Shield } from 'lucide-react';
+import { ROLE_OPTIONS } from '../constants/Roles';
 
 export default function AddUserModal({ onClose, onCreated }) {
   const [formData, setFormData] = useState({
@@ -7,10 +8,11 @@ export default function AddUserModal({ onClose, onCreated }) {
     email: '',
     role: 'AUDITOR'
   });
+
   const [submitting, setSubmitting] = useState(false);
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
+  const handleSubmit = (event) => {
+    event.preventDefault();
     setSubmitting(true);
 
     const payload = {
@@ -25,18 +27,18 @@ export default function AddUserModal({ onClose, onCreated }) {
       google.script.run
         .withSuccessHandler(() => {
           setSubmitting(false);
-          if (onCreated) onCreated();
+          onCreated?.();
           onClose();
         })
-        .withFailureHandler((err) => {
-          console.error('Error adding user:', err);
+        .withFailureHandler((error) => {
+          console.error('Error adding user:', error);
           setSubmitting(false);
         })
         .apiAddUser(payload);
     } else {
       setTimeout(() => {
         setSubmitting(false);
-        if (onCreated) onCreated();
+        onCreated?.();
         onClose();
       }, 500);
     }
@@ -47,17 +49,29 @@ export default function AddUserModal({ onClose, onCreated }) {
       <div className="bg-white rounded-2xl border border-slate-200 max-w-md w-full p-6 shadow-xl">
         <div className="flex justify-between items-center pb-4 border-b border-slate-100">
           <div>
-            <span className="text-[10px] font-bold text-blue-600 tracking-wider uppercase">User Management</span>
-            <h2 className="text-lg font-black text-slate-900">Add New Auditor</h2>
+            <span className="text-[10px] font-bold text-blue-600 tracking-wider uppercase">
+              Role Management
+            </span>
+
+            <h2 className="text-lg font-black text-slate-900">
+              Add User & Assign Role
+            </h2>
           </div>
-          <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-600">
+
+          <button
+            onClick={onClose}
+            className="p-1 text-slate-400 hover:text-slate-600"
+          >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         <form onSubmit={handleSubmit} className="mt-4 space-y-4 text-xs">
           <div>
-            <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Full Name</label>
+            <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
+              Full Name
+            </label>
+
             <div className="relative">
               <input
                 type="text"
@@ -65,39 +79,66 @@ export default function AddUserModal({ onClose, onCreated }) {
                 placeholder="e.g. John Doe"
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 pl-8 font-semibold text-slate-800"
                 value={formData.full_name}
-                onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
+                onChange={(event) =>
+                  setFormData({
+                    ...formData,
+                    full_name: event.target.value
+                  })
+                }
               />
+
               <User className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-3" />
             </div>
           </div>
 
           <div>
-            <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Email Address</label>
+            <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
+              Email Address
+            </label>
+
             <div className="relative">
               <input
                 type="email"
                 required
-                placeholder="auditor@company.com"
+                placeholder="user@company.com"
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 pl-8 font-semibold text-slate-800"
                 value={formData.email}
-                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                onChange={(event) =>
+                  setFormData({
+                    ...formData,
+                    email: event.target.value
+                  })
+                }
               />
+
               <Mail className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-3" />
             </div>
           </div>
 
           <div>
-            <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Role</label>
+            <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
+              Assign Role
+            </label>
+
             <div className="relative">
               <select
+                required
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 pl-8 font-semibold text-slate-800"
                 value={formData.role}
-                onChange={(e) => setFormData({ ...formData, role: e.target.value })}
+                onChange={(event) =>
+                  setFormData({
+                    ...formData,
+                    role: event.target.value
+                  })
+                }
               >
-                <option value="AUDITOR">AUDITOR</option>
-                <option value="ADMIN">ADMIN</option>
-                <option value="MANAGER">MANAGER</option>
+                {ROLE_OPTIONS.map((role) => (
+                  <option key={role.value} value={role.value}>
+                    {role.label}
+                  </option>
+                ))}
               </select>
+
               <Shield className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-3" />
             </div>
           </div>
@@ -110,13 +151,17 @@ export default function AddUserModal({ onClose, onCreated }) {
             >
               Cancel
             </button>
+
             <button
               type="submit"
               disabled={submitting}
-              className="px-5 py-2 rounded-xl text-xs font-bold bg-blue-600 text-white hover:bg-blue-700 flex items-center gap-2 shadow-md"
+              className="px-5 py-2 rounded-xl text-xs font-bold bg-blue-600 text-white hover:bg-blue-700 flex items-center gap-2 shadow-md disabled:opacity-50"
             >
-              {submitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-              <span>Add Auditor</span>
+              {submitting && (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              )}
+
+              <span>Add User</span>
             </button>
           </div>
         </form>
