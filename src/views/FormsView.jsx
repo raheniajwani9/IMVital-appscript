@@ -176,7 +176,6 @@ export default function FormsView({ data = [], onRefreshData }) {
               <span className="text-xs font-semibold text-indigo-600 tracking-wider uppercase">Form Builder</span>
             </div>
             <h1 className="text-xl lg:text-2xl font-bold text-slate-900 tracking-tight">Forms</h1>
-            <p className="text-xs text-slate-500 mt-0.5">Design versioned checklists with conditional logic, evidence policies, and scoring.</p>
           </div>
           <button onClick={() => setIsCreateOpen(true)} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-4 py-2.5 rounded-xl shadow-sm shadow-indigo-500/20 transition-all whitespace-nowrap shrink-0">
             <Plus className="w-4 h-4" /> Create Form

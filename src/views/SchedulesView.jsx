@@ -147,9 +147,6 @@ export default function SchedulesView({ schedules = [], templates = [], location
                   <tr key={sch.schedule_id} className="hover:bg-slate-50/50 transition-colors">
                     <td className="p-4">
                       <div className="font-bold text-slate-900 text-xs">{title}</div>
-                      <div className="text-[10px] text-slate-400 font-mono mt-0.5">
-                        {sch.schedule_id} · {sch.template_version || 'v1.0'}
-                      </div>
                     </td>
                     <td className="p-4">
                       <span className="flex items-center gap-1.5 text-slate-700">
