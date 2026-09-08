@@ -27,6 +27,9 @@ export default function FormsView({ data = [], onRefreshData }) {
       return !id.startsWith('CAT-') && name !== 'Category Metadata Entry';
     });
 
+    console.log('--- Debug: Cleaned Forms Data ---');
+    console.log('Cleaned Data:', cleanData);
+
     const map = {};
     cleanData.forEach((row) => {
       const key = row.template_id || row.template_code || row.template_name;
@@ -166,7 +169,7 @@ export default function FormsView({ data = [], onRefreshData }) {
     <div className="flex flex-col h-full bg-slate-50 font-sans text-slate-800" onClick={() => { setActiveMenuId(null); setIsSortMenuOpen(false); }}>
 
       {/* ── Header ── */}
-      <div className="shrink-0 px-6 lg:px-8 pt-6 pb-4">
+      <div className="shrink-0 px-4 sm:px-6 lg:px-8 pt-6 pb-4">
         <div className="flex items-center justify-between gap-4 mb-4">
           <div>
             <div className="flex items-center gap-2 mb-1.5">
@@ -183,7 +186,7 @@ export default function FormsView({ data = [], onRefreshData }) {
         </div>
 
         {/* ── Search & Sort Bar ── */}
-        <div className="flex items-center gap-3">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
           <div className="relative flex-1 max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
             <input
@@ -241,7 +244,7 @@ export default function FormsView({ data = [], onRefreshData }) {
       </div>
 
       {/* ── Main content ── */}
-      <div className="flex-1 flex gap-5 px-6 lg:px-8 pb-6 overflow-hidden">
+      <div className="flex-1 flex gap-5 px-4 sm:px-6 lg:px-8 pb-6 overflow-hidden">
 
         {groupedForms.length === 0 ? (
           <div className="flex-1 flex items-center justify-center">
@@ -264,7 +267,12 @@ export default function FormsView({ data = [], onRefreshData }) {
         ) : (
           <>
             {/* ═══ LEFT: Cards list ═══ */}
-            <div className={`flex flex-col ${previewForm ? 'w-[60%]' : 'w-full'} transition-all duration-300`}>
+            {/* Below lg the preview takes over the viewport (master/detail), so hide the list */}
+            <div
+              className={`flex-col ${
+                previewForm ? 'hidden lg:flex lg:w-[60%]' : 'flex w-full'
+              } transition-all duration-300`}
+            >
               <div className="flex items-center justify-between mb-3 shrink-0">
                 <span className="text-sm font-semibold text-slate-700">
                   All Forms <span className="text-slate-400 font-normal">({filteredAndSortedForms.length})</span>
@@ -361,7 +369,7 @@ export default function FormsView({ data = [], onRefreshData }) {
 
             {/* ═══ RIGHT: Preview panel ═══ */}
             {previewForm && (
-              <div className="w-[40%] min-w-[340px] shrink-0 flex flex-col">
+              <div className="w-full lg:w-[40%] lg:min-w-[340px] shrink-0 flex flex-col">
                 <div className="bg-white rounded-2xl border border-slate-200 shadow-sm flex flex-col flex-1 overflow-hidden">
                   <div className="flex items-start justify-between p-4 border-b border-slate-100 shrink-0">
                     <div className="flex items-center gap-2.5 min-w-0">

@@ -75,7 +75,7 @@ export default function SchedulesView({ schedules = [], templates = [], location
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
           <span className="text-[11px] font-bold text-blue-600 tracking-wider uppercase">Automated Audits</span>
-          <h1 className="text-3xl font-black text-slate-900 mt-1 tracking-tight">Audit Schedules</h1>
+          <h1 className="text-2xl sm:text-3xl font-black text-slate-900 mt-1 tracking-tight">Audit Schedules</h1>
           <p className="text-sm text-slate-500 mt-1">Configure recurring audit routines across operational locations.</p>
         </div>
         <button

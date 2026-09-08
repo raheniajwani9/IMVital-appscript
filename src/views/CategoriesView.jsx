@@ -69,7 +69,7 @@ export default function CategoriesView({ questionBank = [], onRefreshData }) {
           <span className="text-[11px] font-bold text-blue-600 tracking-wider uppercase">
             Taxonomy & Metadata
           </span>
-          <h1 className="text-3xl font-black text-slate-900 mt-0.5 tracking-tight">
+          <h1 className="text-2xl sm:text-3xl font-black text-slate-900 mt-0.5 tracking-tight">
             Categories
           </h1>
           <p className="text-xs text-slate-500 mt-1">

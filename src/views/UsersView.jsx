@@ -77,7 +77,7 @@ export default function UsersView({ users = [], onRefreshData }) {
             Role Management
           </span>
 
-          <h1 className="text-3xl font-black text-slate-900 mt-1 tracking-tight">
+          <h1 className="text-2xl sm:text-3xl font-black text-slate-900 mt-1 tracking-tight">
             Users & Roles
           </h1>
 
