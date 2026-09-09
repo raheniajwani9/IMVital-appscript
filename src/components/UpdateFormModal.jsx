@@ -96,7 +96,7 @@ export default function UpdateFormModal({ form, onClose, onUpdated }) {
     template_owner_id: form?.template_owner_id || form?.owner || '',
     applicable_locations: form?.applicable_locations || 'All Locations',
     effective_date: form?.effective_date || new Date().toISOString().split('T')[0],
-    template_status: form?.template_status || 'Draft',
+    template_status: form?.template_status === 'Published' ? 'Published' : 'Draft',
     template_version: form?.template_version || 'v1.0',
     estimated_minutes: form?.estimated_minutes || 15,
     sample_size: form?.sample_size || '',
