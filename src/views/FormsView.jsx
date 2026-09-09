@@ -51,7 +51,7 @@ export default function FormsView({ data = [], onRefreshData }) {
           owner: row.template_owner_id || row.owner || 'System Admin',
           applicable_locations: row.applicable_locations || row.locations || 'All Locations',
           effective_date: formattedDate,
-          template_status: row.template_status || 'Draft',
+          template_status: row.template_status === 'Published' ? 'Published' : 'Draft',
           template_version: row.template_version || 'v1.0',
           estimated_minutes: Number(row.estimated_minutes) || 15,
           sections: []
@@ -306,7 +306,7 @@ export default function FormsView({ data = [], onRefreshData }) {
                         <div className="flex items-center gap-2 mb-0.5">
                           <h3 className="font-semibold text-sm text-slate-900 truncate">{form.template_name}</h3>
                           <span className={`shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-semibold uppercase ${isPublished ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
-                            <span className={`w-1.5 h-1.5 rounded-full ${isPublished ? 'bg-emerald-500' : 'bg-amber-500'}`} />{form.template_status || 'Draft'}
+                            <span className={`w-1.5 h-1.5 rounded-full ${isPublished ? 'bg-emerald-500' : 'bg-amber-500'}`} />{isPublished ? 'Published' : 'Draft'}
                           </span>
                         </div>
                         <p className="text-xs text-slate-500 line-clamp-1 leading-relaxed">{form.template_description || 'Standard operational procedure checklist.'}</p>
@@ -381,7 +381,7 @@ export default function FormsView({ data = [], onRefreshData }) {
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-[10px] font-semibold uppercase ${previewForm.template_status === 'Published' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${previewForm.template_status === 'Published' ? 'bg-emerald-500' : 'bg-amber-500'}`} />{previewForm.template_status || 'Draft'}
+                        <span className={`w-1.5 h-1.5 rounded-full ${previewForm.template_status === 'Published' ? 'bg-emerald-500' : 'bg-amber-500'}`} />{previewForm.template_status === 'Published' ? 'Published' : 'Draft'}
                       </span>
                       <button onClick={closePreview} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
                         <X className="w-4 h-4" />
