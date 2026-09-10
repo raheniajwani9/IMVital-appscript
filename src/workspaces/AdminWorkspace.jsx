@@ -20,7 +20,8 @@ const DEFAULT_DATA = {
   templates: [],
   schedules: [],
   users: [],
-  locations: []
+  locations: [],
+  clusters: []
 };
 
 export default function AdminWorkspace({ currentUser, onLogout }) {
@@ -86,7 +87,13 @@ export default function AdminWorkspace({ currentUser, onLogout }) {
         <CategoriesView questionBank={data.questionBank} onRefreshData={fetchData} />
       )}
 
-      {currentTab === 'Users' && <UsersView users={data?.users || []} onRefreshData={fetchData} />}
+      {currentTab === 'Users' && (
+        <UsersView
+          users={data?.users || []}
+          locations={data?.locations || []}
+          onRefreshData={fetchData}
+        />
+      )}
     </AppShell>
   );
 }
