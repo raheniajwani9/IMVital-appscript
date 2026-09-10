@@ -16,10 +16,11 @@ import AddUserModal from '../components/AddUserModal';
 import UpdateUserModal from '../components/UpdateUserModal';
 import DeleteUserModal from '../components/DeleteUserModal';
 import { getRoleLabel } from '../constants/Roles';
+import { userClusters } from '../constants/clusters';
 
 const ITEMS_PER_PAGE = 10;
 
-export default function UsersView({ users = [], onRefreshData }) {
+export default function UsersView({ users = [], locations = [], onRefreshData }) {
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
   const [deletingUser, setDeletingUser] = useState(null);
@@ -47,15 +48,22 @@ export default function UsersView({ users = [], onRefreshData }) {
       const email = user.email || '';
       const role = getRoleLabel(user.role);
       const userId = user.user_id || '';
+      const clusters = userClusters(user).join(' ');
 
       return (
         name.toLowerCase().includes(query) ||
         email.toLowerCase().includes(query) ||
         role.toLowerCase().includes(query) ||
-        userId.toLowerCase().includes(query)
+        userId.toLowerCase().includes(query) ||
+        clusters.toLowerCase().includes(query)
       );
     });
   }, [users, searchQuery]);
+
+  const unmappedCount = useMemo(
+    () => users.filter((user) => !String(user.home_cluster || '').trim()).length,
+    [users]
+  );
 
   const totalPages = Math.ceil(filteredUsers.length / ITEMS_PER_PAGE) || 1;
 
@@ -82,7 +90,7 @@ export default function UsersView({ users = [], onRefreshData }) {
           </h1>
 
           <p className="text-sm text-slate-500 mt-1">
-            Manage users and assign platform access roles.
+            Manage users, assign platform roles, and set cluster coverage.
           </p>
         </div>
 
@@ -95,13 +103,20 @@ export default function UsersView({ users = [], onRefreshData }) {
         </button>
       </div>
 
+      {unmappedCount > 0 && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs font-bold text-amber-700">
+          {unmappedCount} user{unmappedCount > 1 ? 's have' : ' has'} no Home Cluster set —
+          they will not appear in cluster-scoped auditor lists when scheduling audits.
+        </div>
+      )}
+
       <div className="flex items-center justify-between gap-4 bg-white p-3 rounded-2xl border border-slate-200/80 shadow-sm">
         <div className="relative flex-1 max-w-md">
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
 
           <input
             type="text"
-            placeholder="Search users by name, email, or role..."
+            placeholder="Search users by name, email, role, or cluster..."
             value={searchQuery}
             onChange={handleSearchChange}
             className="w-full bg-slate-50 border border-slate-200/80 rounded-xl pl-9 pr-4 py-1.5 text-xs font-medium text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
@@ -155,6 +170,7 @@ export default function UsersView({ users = [], onRefreshData }) {
                 <th className="p-4">User Details</th>
                 <th className="p-4">Email Address</th>
                 <th className="p-4">Assigned Role</th>
+                <th className="p-4">Clusters</th>
                 <th className="p-4">Status</th>
                 <th className="p-4 text-right">Actions</th>
               </tr>
@@ -167,6 +183,7 @@ export default function UsersView({ users = [], onRefreshData }) {
 
                 const isActive = user.active !== false;
                 const roleLabel = getRoleLabel(user.role);
+                const extraClusters = userClusters(user).slice(1);
 
                 return (
                   <tr
@@ -206,6 +223,31 @@ export default function UsersView({ users = [], onRefreshData }) {
                         <Shield className="w-3 h-3 text-slate-400" />
                         {roleLabel}
                       </span>
+                    </td>
+
+                    <td className="p-4">
+                      {user.home_cluster ? (
+                        <div className="flex flex-wrap items-center gap-1">
+                          <span
+                            title="Home cluster"
+                            className="inline-flex items-center rounded-lg border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-blue-700"
+                          >
+                            {user.home_cluster}
+                          </span>
+
+                          {extraClusters.map((cluster) => (
+                            <span
+                              key={cluster}
+                              title="Additional cluster"
+                              className="inline-flex items-center rounded-lg border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-bold text-slate-600"
+                            >
+                              {cluster}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-[10px] font-bold text-amber-600">NOT SET</span>
+                      )}
                     </td>
 
                     <td className="p-4">
@@ -311,6 +353,7 @@ export default function UsersView({ users = [], onRefreshData }) {
 
       {isAddOpen && (
         <AddUserModal
+          locations={locations}
           onClose={() => setIsAddOpen(false)}
           onCreated={onRefreshData}
         />
@@ -319,6 +362,7 @@ export default function UsersView({ users = [], onRefreshData }) {
       {editingUser && (
         <UpdateUserModal
           user={editingUser}
+          locations={locations}
           onClose={() => setEditingUser(null)}
           onUpdated={onRefreshData}
         />
