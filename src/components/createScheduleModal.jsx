@@ -16,10 +16,15 @@ export default function CreateScheduleModal({
   onClose,
   onCreated
 }) {
+  // Sort templates so the newest appears first
+  const sortedTemplates = useMemo(() => {
+    return [...templates].reverse();
+  }, [templates]);
+
   const [formData, setFormData] = useState({
-    template_id: templates[0]?.template_id || '',
-    template_name: templates[0]?.template_name || '',
-    template_version: templates[0]?.template_version || 'v1.0',
+    template_id: sortedTemplates[0]?.template_id || sortedTemplates[0]?.id || '',
+    template_name: sortedTemplates[0]?.template_name || '',
+    template_version: sortedTemplates[0]?.template_version || 'v1.0',
     frequency: 'WEEKLY',
     assigned_auditor: '',
     assigned_auditor_email: '',
@@ -37,11 +42,11 @@ export default function CreateScheduleModal({
 
   // Pick up templates once the API call lands
   useEffect(() => {
-    if (!templates.length) return;
+    if (!sortedTemplates.length) return;
 
     setFormData((prev) => {
       if (prev.template_id) return prev;
-      const first = templates[0];
+      const first = sortedTemplates[0];
       return {
         ...prev,
         template_id: first.template_id || first.id || '',
@@ -49,7 +54,7 @@ export default function CreateScheduleModal({
         template_version: first.template_version || 'v1.0'
       };
     });
-  }, [templates]);
+  }, [sortedTemplates]);
 
   const auditor = useMemo(
     () =>
@@ -74,7 +79,7 @@ export default function CreateScheduleModal({
   }, [locations, scope]);
 
   const handleTemplateSelect = (tmplId) => {
-    const selected = templates.find(
+    const selected = sortedTemplates.find(
       (t) => String(t.template_id || t.id) === String(tmplId)
     );
 
@@ -185,7 +190,7 @@ export default function CreateScheduleModal({
               value={formData.template_id}
               onChange={(event) => handleTemplateSelect(event.target.value)}
             >
-              {templates.map((t) => (
+              {sortedTemplates.map((t) => (
                 <option key={t.template_id || t.id} value={t.template_id || t.id}>
                   {t.template_name} ({t.template_version || 'v1.0'})
                 </option>

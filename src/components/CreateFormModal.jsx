@@ -1,26 +1,23 @@
 import React, { useState, useMemo } from 'react';
 import {
   Loader2, X, Plus, Trash2, HelpCircle, Camera,
-  FileSignature, QrCode, MapPin, Layers, FileText,
-  ChevronLeft, Check, ArrowRight, ArrowLeft,
+  Layers, FileText, ChevronLeft, Check, ArrowRight,
   ShieldCheck, AlertTriangle
 } from 'lucide-react';
 
 const RESPONSE_TYPES = [
   { value: 'YES_NO', label: 'Yes / No' }, { value: 'PASS_FAIL', label: 'Pass / Fail' },
-  { value: 'PHOTO', label: 'Photo Evidence' }, { value: 'TEXT', label: 'Text Entry' },
-  { value: 'NUMBER', label: 'Number' }, { value: 'RATING', label: 'Rating (1-5)' },
-  { value: 'GPS', label: 'GPS Capture' }, { value: 'BARCODE', label: 'QR / Barcode' },
-  { value: 'SIGNATURE', label: 'Digital Signature' }
+  { value: 'PHOTO', label: 'Photo Evidence' }, { value: 'RATING', label: 'Rating (1-5)' }
 ];
 const EVIDENCE_POLICIES = [
   { value: 'NONE', label: 'Not Required' }, { value: 'OPTIONAL', label: 'Optional' },
   { value: 'MANDATORY', label: 'Always Required' }, { value: 'MANDATORY_ON_FAIL', label: 'Required on Failure' }
 ];
+
 const EVIDENCE_TYPES = [
-  { value: 'PHOTO', label: 'Photo', icon: Camera }, { value: 'GPS', label: 'GPS', icon: MapPin },
-  { value: 'BARCODE', label: 'QR / Barcode', icon: QrCode }, { value: 'SIGNATURE', label: 'Signature', icon: FileSignature }
+  { value: 'PHOTO', label: 'Photo', icon: Camera }
 ];
+
 const AUDIT_TYPES = ['Internal Audit', 'External Audit', 'Safety & Compliance', 'Process / Operational', 'Spot Check'];
 
 const FAILURE_RESPONSES = [
@@ -42,10 +39,7 @@ const COMMENT_REQUIREMENTS = [
 
 const newQuestion = () => ({
   question_text: '', response_type: 'YES_NO', evidence_policy: 'OPTIONAL',
-  allowed_evidence: ['PHOTO', 'GPS', 'BARCODE', 'SIGNATURE'],
-  gps_config: { require_geofence: false, max_accuracy_meters: 50, store_radius_meters: 100 },
-  barcode_config: { verification_type: 'ASSET', allow_manual_fallback: true },
-  signature_config: { signer_role: 'Store Manager', require_signer_name: true },
+  allowed_evidence: ['PHOTO'],
   points: 1, is_required: true, instructions: '', showInstructions: false,
   scored: false, failure_response: 'NONE', critical_question: false,
   na_allowed: false, risk_category: 'General', tags: [], comment_required: 'NEVER'
@@ -147,9 +141,6 @@ export default function CreateFormModal({ existingForms = [], onClose, onCreated
           comment_required: q.comment_required || 'NEVER',
           evidence_policy: q.evidence_policy || 'OPTIONAL',
           allowed_evidence_json: JSON.stringify(q.allowed_evidence || []),
-          gps_config_json: JSON.stringify(q.gps_config || {}),
-          barcode_config_json: JSON.stringify(q.barcode_config || {}),
-          signature_config_json: JSON.stringify(q.signature_config || {}),
           points: Number(q.points) || 0,
           template_instructions: q.instructions || secInstruction || fallbackInstruction,
           section_instructions: q.instructions || secInstruction || '',
@@ -256,13 +247,6 @@ export default function CreateFormModal({ existingForms = [], onClose, onCreated
                     </select>
                   </div>
                   <div>
-                    <label className={labelCls}>Status</label>
-                    <select className={sectionCls} value={formData.template_status} onChange={(e) => handleChange('template_status', e.target.value)}>
-                      <option value="Published">Published</option>
-                      <option value="Draft">Draft</option>
-                    </select>
-                  </div>
-                  <div>
                     <label className={labelCls}>Estimated Minutes</label>
                     <input type="number" min="1" className={sectionCls} value={formData.estimated_minutes} onChange={(e) => handleChange('estimated_minutes', e.target.value)} />
                   </div>
@@ -363,7 +347,7 @@ export default function CreateFormModal({ existingForms = [], onClose, onCreated
                         </div>
                       </div>
 
-                      {/* ── §13 Scoring & Validation ── */}
+                      {/* ── Scoring & Validation ── */}
                       <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-3">
                         <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-500 uppercase tracking-wide">
                           <ShieldCheck className="w-3.5 h-3.5" /> Scoring & Validation
@@ -426,33 +410,6 @@ export default function CreateFormModal({ existingForms = [], onClose, onCreated
                           })}
                         </div>
                       </div>
-
-                      {(q.allowed_evidence || []).includes('GPS') && (
-                        <div className="bg-blue-50/40 border border-blue-100 rounded-xl p-3 space-y-2">
-                          <div className="flex items-center gap-1.5 text-xs font-bold text-blue-700"><MapPin className="w-3.5 h-3.5" /> GPS Settings</div>
-                          <div className="flex items-center gap-4">
-                            <label className="flex flex-col gap-1 text-xs text-slate-500">Max accuracy (meters)<input type="number" className="bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm text-slate-700 w-32 focus:outline-none focus:ring-2 focus:ring-blue-500/20" value={q.gps_config?.max_accuracy_meters || 50} onChange={(e) => updateQuestion(currentSectionIdx, qIdx, 'gps_config', { ...q.gps_config, max_accuracy_meters: Number(e.target.value) })} /></label>
-                            <label className="flex items-center gap-2 text-xs font-medium text-slate-600 cursor-pointer mt-5"><input type="checkbox" checked={q.gps_config?.require_geofence || false} onChange={(e) => updateQuestion(currentSectionIdx, qIdx, 'gps_config', { ...q.gps_config, require_geofence: e.target.checked })} className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer" />Require geofence validation</label>
-                          </div>
-                        </div>
-                      )}
-
-                      {(q.allowed_evidence || []).includes('BARCODE') && (
-                        <div className="bg-emerald-50/40 border border-emerald-100 rounded-xl p-3 space-y-2">
-                          <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-700"><QrCode className="w-3.5 h-3.5" /> QR / Barcode Settings</div>
-                          <div className="flex items-center gap-4 flex-wrap">
-                            <div className="flex flex-col gap-1 text-xs text-slate-500">Verification type<select className="bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm text-slate-700 w-44 focus:outline-none focus:ring-2 focus:ring-emerald-500/20" value={q.barcode_config?.verification_type || 'ASSET'} onChange={(e) => updateQuestion(currentSectionIdx, qIdx, 'barcode_config', { ...q.barcode_config, verification_type: e.target.value })}><option value="STORE">Store Verification</option><option value="ASSET">Asset Verification</option><option value="LOCATION">Location Verification</option><option value="CHECKLIST_INIT">Checklist Initiation</option></select></div>
-                            <label className="flex items-center gap-2 text-xs font-medium text-slate-600 cursor-pointer mt-5"><input type="checkbox" checked={q.barcode_config?.allow_manual_fallback ?? true} onChange={(e) => updateQuestion(currentSectionIdx, qIdx, 'barcode_config', { ...q.barcode_config, allow_manual_fallback: e.target.checked })} className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer" />Allow manual entry fallback</label>
-                          </div>
-                        </div>
-                      )}
-
-                      {(q.allowed_evidence || []).includes('SIGNATURE') && (
-                        <div className="bg-purple-50/40 border border-purple-100 rounded-xl p-3 space-y-2">
-                          <div className="flex items-center gap-1.5 text-xs font-bold text-purple-700"><FileSignature className="w-3.5 h-3.5" /> Signature Settings</div>
-                          <div className="flex flex-col gap-1 text-xs text-slate-500">Required signer role<select className="bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm text-slate-700 w-56 focus:outline-none focus:ring-2 focus:ring-purple-500/20" value={q.signature_config?.signer_role || 'Store Manager'} onChange={(e) => updateQuestion(currentSectionIdx, qIdx, 'signature_config', { ...q.signature_config, signer_role: e.target.value })}><option value="Store Manager">Store Manager Acknowledgement</option><option value="Supervisor">Supervisor Sign-off</option><option value="Auditor">Auditor Corrective Sign-off</option></select></div>
-                        </div>
-                      )}
                     </div>
                   ))}
 

@@ -3,11 +3,12 @@ import {LayoutGrid,Calendar,Users as UsersIcon,Tag,ClipboardCheck,History,Calend
 export const NAV_CONFIG = {
   ADMIN: {
     breadcrumb: 'PROGRAM ADMIN',
-    defaultTab: 'Forms',
+    defaultTab: 'Dashboard',
     groups: [
       {
         title: 'COMMAND CENTRE',
         items: [
+          { key: 'Dashboard', name: 'Dashboard', icon: BarChart3 },
           { key: 'Forms', name: 'Forms', icon: LayoutGrid, countKey: 'templates' },
           { key: 'Schedules', name: 'Schedules', icon: Calendar, countKey: 'schedules' }
         ]

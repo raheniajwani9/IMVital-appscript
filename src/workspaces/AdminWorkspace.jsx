@@ -5,6 +5,7 @@ import SchedulesView from '../views/SchedulesView';
 import CategoriesView from '../views/CategoriesView';
 import UsersView from '../views/UsersView';
 import { NAV_CONFIG } from '../constants/navigation';
+import AdminDashboardView from '../views/AdminDashboardView';
 
 const DEFAULT_DATA = {
   overview: {
@@ -14,6 +15,10 @@ const DEFAULT_DATA = {
     highRiskActionsCount: 0,
     syncHealth: '100%'
   },
+  response: [],
+  action_updates: [],
+  evidence: [],
+  activityLog: [],
   audits: [],
   actions: [],
   questionBank: [],
@@ -71,6 +76,10 @@ export default function AdminWorkspace({ currentUser, onLogout }) {
       onRefresh={fetchData}
       onLogout={onLogout}
     >
+      {currentTab === 'Dashboard' && (
+        <AdminDashboardView data={data} loading={loading} onRefreshData={fetchData} />
+      )}
+
       {currentTab === 'Forms' && <FormsView data={templates} onRefreshData={fetchData} />}
 
       {currentTab === 'Schedules' && (

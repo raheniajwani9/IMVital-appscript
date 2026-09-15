@@ -8,10 +8,7 @@ import {
 
 const RESPONSE_TYPES = [
   { value: 'YES_NO', label: 'Yes / No' }, { value: 'PASS_FAIL', label: 'Pass / Fail' },
-  { value: 'PHOTO', label: 'Photo Evidence' }, { value: 'TEXT', label: 'Text Entry' },
-  { value: 'NUMBER', label: 'Number' }, { value: 'RATING', label: 'Rating (1-5)' },
-  { value: 'GPS', label: 'GPS Capture' }, { value: 'BARCODE', label: 'QR / Barcode' },
-  { value: 'SIGNATURE', label: 'Digital Signature' }
+  { value: 'PHOTO', label: 'Photo Evidence' }, { value: 'RATING', label: 'Rating (1-5)' }
 ];
 const EVIDENCE_POLICIES = [
   { value: 'NONE', label: 'Not Required' }, { value: 'OPTIONAL', label: 'Optional' },
@@ -41,6 +38,11 @@ const COMMENT_REQUIREMENTS = [
 const parseBool = (v) => String(v).toLowerCase() === 'true';
 const parseTags = (v) => { try { return JSON.parse(v || '[]'); } catch { return Array.isArray(v) ? v : []; } };
 
+// Answer types removed from the builder — legacy questions using them
+// normalize to YES_NO so the select never renders blank.
+const DEPRECATED_RESPONSE_TYPES = ['GPS', 'BARCODE', 'SIGNATURE', 'TEXT', 'NUMBER'];
+const normalizeResponseType = (rt) => (DEPRECATED_RESPONSE_TYPES.includes(rt) ? 'YES_NO' : (rt || 'YES_NO'));
+
 const blankQ = () => ({
   question_text: '', response_type: 'YES_NO', evidence_policy: 'OPTIONAL',
   allowed_evidence: ['PHOTO', 'GPS', 'BARCODE', 'SIGNATURE'],
@@ -54,7 +56,7 @@ const blankQ = () => ({
 
 const hydrateQ = (q) => ({
   question_text: q.question_text || '',
-  response_type: q.response_type || 'YES_NO',
+  response_type: normalizeResponseType(q.response_type),
   evidence_policy: q.evidence_policy || 'OPTIONAL',
   allowed_evidence: q.allowed_evidence || ['PHOTO'],
   gps_config: q.gps_config || { require_geofence: false, max_accuracy_meters: 50, store_radius_meters: 100 },
@@ -81,7 +83,7 @@ export default function UpdateFormModal({ form, onClose, onUpdated }) {
     return Array.from(new Set([...defaultCats, form?.template_category].filter(Boolean)));
   }, [form]);
 
-  const [categories] = useState(dynamicCategories);
+  const [categories, setCategories] = useState(dynamicCategories);
   const [isAddingCategory, setIsAddingCategory] = useState(false);
   const [newCategoryInput, setNewCategoryInput] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -96,7 +98,8 @@ export default function UpdateFormModal({ form, onClose, onUpdated }) {
     template_owner_id: form?.template_owner_id || form?.owner || '',
     applicable_locations: form?.applicable_locations || 'All Locations',
     effective_date: form?.effective_date || new Date().toISOString().split('T')[0],
-    template_status: form?.template_status === 'Published' ? 'Published' : 'Draft',
+    // Draft option removed — forms are always saved as Published
+    template_status: 'Published',
     template_version: form?.template_version || 'v1.0',
     estimated_minutes: form?.estimated_minutes || 15,
     sample_size: form?.sample_size || '',
@@ -130,7 +133,7 @@ export default function UpdateFormModal({ form, onClose, onUpdated }) {
   const handleAddCustomCategory = () => {
     if (!newCategoryInput.trim()) return;
     const addedCat = newCategoryInput.trim();
-    if (!categories.includes(addedCat)) categories.push(addedCat);
+    if (!categories.includes(addedCat)) setCategories((prev) => [...prev, addedCat]);
     setFormData((prev) => ({ ...prev, template_category: addedCat }));
     setNewCategoryInput(''); setIsAddingCategory(false);
   };
@@ -164,12 +167,14 @@ export default function UpdateFormModal({ form, onClose, onUpdated }) {
     const fallbackInstruction = allInstructions.join(' | ') || formData.template_instructions || '';
     const cleanedPayload = {
       ...formData, template_id: form?.template_id, template_instructions: fallbackInstruction,
+      template_status: 'Published',
       estimated_minutes: Number(formData.estimated_minutes) || 0,
       sample_size: Number(formData.sample_size) || 0,
       sections: formData.sections.map((sec, secIdx) => {
         const secInstruction = sec.questions.map((q) => q.instructions).filter(Boolean).join(' | ') || fallbackInstruction;
         return { ...sec, section_order: secIdx + 1, section_instructions: secInstruction, questions: sec.questions.filter((q) => q.question_text.trim() !== '').map((q) => ({
           ...q, required: q.is_required ? true : false, is_required: q.is_required,
+          // Comments are metadata only — they never contribute to scoring.
           scored: q.scored || false,
           max_score: Number(q.points) || 0,
           failure_response: q.failure_response || 'NONE',
@@ -288,20 +293,13 @@ export default function UpdateFormModal({ form, onClose, onUpdated }) {
                       {AUDIT_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}
                     </select>
                   </div>
-                  <div>
-                    <label className={labelCls}>Status</label>
-                    <select className={sectionCls} value={formData.template_status} onChange={(e) => handleChange('template_status', e.target.value)}>
-                      <option value="Published">Published</option>
-                      <option value="Draft">Draft</option>
-                    </select>
-                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className={labelCls}>Estimated Minutes</label>
                     <input type="number" min="1" className={sectionCls} value={formData.estimated_minutes} onChange={(e) => handleChange('estimated_minutes', e.target.value)} />
                   </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className={labelCls}>Sample Size (SKU Count) <span className="text-slate-400 font-normal normal-case text-[10px]">(optional)</span></label>
                     <input type="number" min="0" placeholder="e.g. 50" className={sectionCls} value={formData.sample_size} onChange={(e) => handleChange('sample_size', e.target.value)} />

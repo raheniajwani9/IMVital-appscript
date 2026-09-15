@@ -1,8 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import {
-  ArrowLeft, ChevronLeft, ChevronRight, Loader2, Save, Send,
-  CheckCircle2, AlertTriangle, MapPin, Calendar, Cloud, CloudOff, Wifi, Camera, ScanLine, X
-} from 'lucide-react';
+import {ArrowLeft, ChevronLeft, ChevronRight, Loader2, Save, Send,CheckCircle2, AlertTriangle, MapPin, Calendar, Cloud, CloudOff, Wifi, Camera, ScanLine, X,Gauge, Star, ListChecks, ShieldCheck, Check} from 'lucide-react';
+
 import QuestionCard from '../components/QuestionCard';
 import ScannerModal from '../components/ScannerModal';
 import { computeAuditScore, validateAudit } from '../utils/auditEngine';
@@ -40,7 +38,7 @@ export default function AuditRunnerView({ assignment, template, currentUser, onE
   // --- Scanner state ---
   const [scanOpen, setScanOpen] = useState(false);
   const [scannedQuestionId, setScannedQuestionId] = useState('');
-  const [scanNotice, setScanNotice] = useState(null); // { tone: 'ok' | 'warn', text }
+  const [scanNotice, setScanNotice] = useState(null); 
 
   const sections = useMemo(() => {
     const list = [...(template?.sections || [])];
@@ -344,82 +342,121 @@ export default function AuditRunnerView({ assignment, template, currentUser, onE
     );
   }
 
-  if (step === 'PRE_CHECKS') {
-    return (
-      <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200 shadow-sm max-w-lg mx-auto mt-4 sm:mt-10">
-        <h2 className="text-xl font-black mb-1">Pre-Audit Checks</h2>
-        <p className="text-xs text-slate-500 mb-6">Device and environment verification.</p>
-
-        <div className="space-y-3 mb-4">
-          <div className="flex items-center justify-between p-3 border border-slate-200 rounded-xl">
-            <div className="flex items-center gap-3 text-sm font-semibold text-slate-700"><Wifi className="w-4 h-4 text-blue-600"/> Network</div>
-            {checks.network ? <CheckCircle2 className="w-5 h-5 text-emerald-500"/> : <span className="text-xs font-bold text-slate-400">OFFLINE</span>}
-          </div>
-          <div className="flex items-center justify-between p-3 border border-slate-200 rounded-xl">
-            <div className="flex items-center gap-3 text-sm font-semibold text-slate-700"><MapPin className="w-4 h-4 text-blue-600"/> Location Services</div>
-            {checks.location ? <CheckCircle2 className="w-5 h-5 text-emerald-500"/> : <AlertTriangle className="w-5 h-5 text-amber-500"/>}
-          </div>
-          <div className="flex items-center justify-between p-3 border border-slate-200 rounded-xl">
-            <div className="flex items-center gap-3 text-sm font-semibold text-slate-700"><Camera className="w-4 h-4 text-blue-600"/> Camera Access</div>
-            {checks.camera ? <CheckCircle2 className="w-5 h-5 text-emerald-500"/> : <AlertTriangle className="w-5 h-5 text-amber-500"/>}
-          </div>
-        </div>
-
-        <p className="text-[11px] text-slate-400 font-semibold mb-8">
-          Camera is used for photo evidence and item barcode scanning during the audit.
-        </p>
-
-        <div className="flex gap-3">
-          <button onClick={() => onExit({})} className="flex-1 border py-3 rounded-xl font-bold text-slate-600 hover:bg-slate-50">Cancel</button>
-          <button
-            onClick={() => setStep('EXECUTION')}
-            disabled={checking}
-            className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl disabled:opacity-50 transition-colors"
-          >
-            {checking ? 'Checking...' : 'Start Audit'}
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   if (step === 'REVIEW') {
+    const scoreTone = (v) =>
+      v === 'Excellent' || v === 'Good' ? 'text-emerald-600' : v === 'Poor' ? 'text-rose-600' : 'text-amber-600';
+    const ratingLevel = (v) => ({ Excellent: 5, Good: 4, Average: 3, Poor: 2, 'Very Poor': 1 }[v] || 0);
+
     return (
-      <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200 shadow-sm max-w-2xl mx-auto mt-2 sm:mt-6 space-y-6">
-        <div>
-          <h2 className="text-2xl font-black">Review Submission</h2>
-          <p className="text-xs text-slate-500 mt-1">Please review your final score and details before submitting.</p>
+      <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200 shadow-sm max-w-2xl mx-auto mt-2 sm:mt-6 space-y-5">
+        {/* Header */}
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Review Submission</h2>
+            <p className="text-xs text-slate-500 mt-1">Please review your final score and details before submitting.</p>
+          </div>
+          <span className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-50 border border-indigo-100 text-[11px] font-bold text-indigo-600 whitespace-nowrap shrink-0">
+            <ShieldCheck className="w-3.5 h-3.5" /> Final Step
+          </span>
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
-            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Final Score</div>
-            <div className="text-2xl font-black text-blue-600">{score.percent}%</div>
+        {/* Score summary — 2×2 on mobile, 4-up on desktop */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {/* Final Score */}
+          <div className="p-4 rounded-2xl border border-blue-100 bg-blue-50/60">
+            <div className="flex items-center gap-1.5 text-[10px] font-bold text-blue-400 uppercase tracking-wider mb-1.5">
+              <Gauge className="w-3 h-3" /> Final Score
+            </div>
+            <div className="text-2xl font-black text-blue-600 leading-none">{score.percent}%</div>
+            <div className="mt-2 h-1 w-full bg-blue-100 rounded-full overflow-hidden">
+              <div className="h-full bg-blue-500 rounded-full transition-all" style={{ width: `${Math.min(100, Math.max(0, score.percent))}%` }} />
+            </div>
+            <div className="text-[10px] text-slate-400 font-medium mt-1.5">Audit compliance</div>
           </div>
-          <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
-            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Rating</div>
-            <div className={`text-xl font-black ${score.rating === 'Excellent' || score.rating === 'Good' ? 'text-emerald-600' : 'text-rose-600'}`}>{score.rating}</div>
+
+          {/* Rating */}
+          <div className="p-4 rounded-2xl border border-slate-100 bg-slate-50">
+            <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+              <Star className="w-3 h-3" /> Rating
+            </div>
+            <div className={`text-xl font-black leading-none ${scoreTone(score.rating)}`}>{score.rating}</div>
+            <div className="mt-2 flex items-center gap-1">
+              {[1, 2, 3, 4, 5].map((n) => (
+                <span
+                  key={n}
+                  className={`h-1 flex-1 rounded-full ${n <= ratingLevel(score.rating) ? 'bg-emerald-400' : 'bg-slate-200'}`}
+                />
+              ))}
+            </div>
+            <div className="text-[10px] text-slate-400 font-medium mt-1.5">Performance band</div>
           </div>
-          <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
-            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Answered</div>
-            <div className="text-2xl font-black text-slate-900">{score.answered}/{score.total}</div>
+
+          {/* Answered */}
+          <div className="p-4 rounded-2xl border border-slate-100 bg-slate-50">
+            <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+              <ListChecks className="w-3 h-3" /> Answered
+            </div>
+            <div className="text-2xl font-black text-slate-900 leading-none">
+              {score.answered}<span className="text-sm font-bold text-slate-300">/{score.total}</span>
+            </div>
+            <div className="mt-2 h-1 w-full bg-slate-200 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-slate-500 rounded-full transition-all"
+                style={{ width: `${score.total ? Math.round((score.answered / score.total) * 100) : 0}%` }}
+              />
+            </div>
+            <div className="text-[10px] text-slate-400 font-medium mt-1.5">Questions completed</div>
           </div>
-          <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
-            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Critical Fails</div>
-            <div className="text-2xl font-black text-rose-600">{score.criticalFailures}</div>
+
+          {/* Critical Fails */}
+          <div className={`p-4 rounded-2xl ${score.criticalFailures > 0 ? 'border border-rose-100 bg-rose-50/60' : 'border border-slate-100 bg-slate-50'}`}>
+            <div className={`flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider mb-1.5 ${score.criticalFailures > 0 ? 'text-rose-400' : 'text-slate-400'}`}>
+              <AlertTriangle className="w-3 h-3" /> Critical Fails
+            </div>
+            <div className={`text-2xl font-black leading-none ${score.criticalFailures > 0 ? 'text-rose-600' : 'text-slate-400'}`}>
+              {score.criticalFailures}
+            </div>
+            {score.criticalFailures > 0 ? (
+              <>
+                <div className="mt-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-100 text-[10px] font-bold text-rose-600">
+                  <AlertTriangle className="w-2.5 h-2.5" /> Action needed
+                </div>
+                <div className="text-[10px] text-rose-400 font-medium mt-1">Review failed items</div>
+              </>
+            ) : (
+              <>
+                <div className="mt-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-100 text-[10px] font-bold text-emerald-600">
+                  <Check className="w-2.5 h-2.5" /> All clear
+                </div>
+                <div className="text-[10px] text-slate-400 font-medium mt-1">No critical issues</div>
+              </>
+            )}
           </div>
         </div>
 
+        {/* Submit error */}
         {submitError && (
-          <div className="p-3 bg-rose-50 border border-rose-200/80 rounded-2xl text-rose-600 text-xs font-semibold text-center">
+          <div className="flex items-center gap-2 p-3 bg-rose-50 border border-rose-200/80 rounded-2xl text-rose-600 text-xs font-semibold">
+            <AlertTriangle className="w-4 h-4 shrink-0" />
             {submitError}
           </div>
         )}
 
+        {/* Actions */}
         <div className="flex flex-col-reverse sm:flex-row gap-3 pt-4 border-t border-slate-100">
-          <button onClick={() => setStep('EXECUTION')} disabled={submitting} className="flex-1 border border-slate-200 py-3 rounded-xl font-bold text-slate-600 hover:bg-slate-50 transition-colors">Return to Audit</button>
-          <button onClick={handleFinalSubmit} disabled={submitting} className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white py-3 rounded-xl font-bold disabled:opacity-50 transition-colors flex items-center justify-center gap-2">
-            {submitting ? <Loader2 className="w-5 h-5 animate-spin"/> : <Send className="w-5 h-5"/>}
+          <button
+            onClick={() => setStep('EXECUTION')}
+            disabled={submitting}
+            className="flex-1 border border-slate-200 py-3 rounded-xl font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50 transition-colors"
+          >
+            Return to Audit
+          </button>
+          <button
+            onClick={handleFinalSubmit}
+            disabled={submitting}
+            className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white py-3 rounded-xl font-bold shadow-md shadow-emerald-500/20 disabled:opacity-50 disabled:shadow-none transition-colors flex items-center justify-center gap-2"
+          >
+            {submitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
             {submitting ? 'Submitting...' : 'Confirm & Submit'}
           </button>
         </div>
@@ -440,7 +477,7 @@ export default function AuditRunnerView({ assignment, template, currentUser, onE
           <button onClick={() => onExit({})} className="flex items-center gap-1.5 text-[11px] font-bold text-blue-600 hover:text-blue-700 tracking-wider uppercase mb-1 cursor-pointer">
             <ArrowLeft className="w-3.5 h-3.5" /> My Audits
           </button>
-          <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight truncate">{template?.template_name || assignment.template_name}</h1>
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">{template?.template_name || assignment.template_name}</h1>
           <div className="flex flex-wrap items-center gap-3 mt-2 text-xs font-semibold text-slate-500">
             <span className="flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5 text-slate-400" /> {assignment.location_id || 'All Locations'}</span>
             <span className="flex items-center gap-1.5"><Calendar className="w-3.5 h-3.5 text-slate-400" /> Due {assignment.due_date || 'N/A'}</span>
@@ -470,10 +507,6 @@ export default function AuditRunnerView({ assignment, template, currentUser, onE
             <div className="text-[10px] font-semibold text-slate-400 mt-0.5">{card.sub}</div>
           </div>
         ))}
-      </div>
-
-      <div className="h-1.5 w-full bg-slate-200 rounded-full overflow-hidden">
-        <div className="h-full bg-blue-600 rounded-full transition-all duration-300" style={{ width: `${progressPercent}%` }} />
       </div>
 
       {showProblems && problems.length > 0 && (
