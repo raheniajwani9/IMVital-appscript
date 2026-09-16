@@ -5,6 +5,7 @@ import {
   ChevronDown, ChevronRight, ListChecks, Wrench, MessageSquare, Paperclip,
   Eye, Flag, Star
 } from 'lucide-react';
+import { supabase } from '../supabaseClient'; // 1. Import your Supabase client
 
 /* ---------------------------------------------------------------
    Small helpers — date/score formatting used across the report
@@ -69,7 +70,8 @@ function EvidenceThumb({ evidence }) {
     );
   }
 
-  if (!evidence.thumbnail_url || broken) {
+  // Assuming file_url is the public URL from Supabase Storage
+  if (!evidence.file_url || broken) {
     return (
       <div className="w-12 h-12 rounded-lg bg-blue-50 text-blue-500 border border-blue-100 flex items-center justify-center shrink-0">
         <Paperclip className="w-4 h-4" />
@@ -79,7 +81,7 @@ function EvidenceThumb({ evidence }) {
 
   return (
     <img
-      src={evidence.thumbnail_url}
+      src={evidence.file_url}
       alt={evidence.file_name || 'Evidence'}
       onError={() => setBroken(true)}
       className="w-12 h-12 rounded-lg object-cover border border-slate-200 bg-slate-50 shrink-0"
@@ -104,26 +106,75 @@ export default function AuditReportModal({ auditId, templateName, onClose }) {
     return () => { document.body.style.overflow = ''; };
   }, []);
 
-  useEffect(() => {
-    setLoading(true); setError(''); setData(null); setTrackMsg('');
-    if (typeof google !== 'undefined' && google.script) {
-      google.script.run
-        .withSuccessHandler((res) => {
-          if (res && res.success) setData(res);
-          else setError((res && res.message) || 'Could not load this report.');
-          setLoading(false);
-        })
-        .withFailureHandler((err) => {
-          console.error(err);
-          setError('Server error while loading the report.');
-          setLoading(false);
-        })
-        .getAuditReport(auditId);
-    } else {
-      // local dev fallback
-      setTimeout(() => setError('google.script.run unavailable (local dev).'), 400);
+  const fetchReportData = async () => {
+    setLoading(true); 
+    setError(''); 
+    setData(null); 
+    setTrackMsg('');
+
+    try {
+      // 2. Fetch the audit, responses, and actions from Supabase in parallel
+      const [
+        { data: audit, error: auditError },
+        { data: responses, error: responsesError },
+        { data: actions, error: actionsError }
+      ] = await Promise.all([
+        supabase.from('audits').select('*').eq('audit_id', auditId).single(),
+        supabase.from('responses').select('*').eq('audit_id', auditId),
+        supabase.from('actions').select('*').eq('audit_id', auditId)
+      ]);
+
+      if (auditError) throw auditError;
+      if (responsesError) throw responsesError;
+      if (actionsError) throw actionsError;
+
+      // Group responses by section to calculate section scores
+      const sectionsMap = {};
+      responses.forEach(r => {
+        const sec = r.section_name || 'General';
+        if (!sectionsMap[sec]) {
+          sectionsMap[sec] = { section_name: sec, score: 0, max: 0, failures: 0 };
+        }
+        sectionsMap[sec].score += Number(r.score) || 0;
+        sectionsMap[sec].max += Number(r.max_score) || 0;
+        if (r.is_failure) sectionsMap[sec].failures += 1;
+      });
+
+      const sections = Object.values(sectionsMap).map(s => ({
+        ...s,
+        score_percent: s.max > 0 ? Math.round((s.score / s.max) * 100) : 0
+      }));
+
+      // Filter out failed items
+      const failed_items = responses.filter(r => r.is_failure);
+
+      setData({
+        success: true,
+        audit,
+        responses: responses.map(r => ({
+          ...r,
+          is_na: r.response_value === 'N/A', // Compute NA locally based on value
+          evidence: r.evidence_uris || [] // Map the JSONB array
+        })),
+        sections,
+        failed_items: failed_items.map(r => ({
+          ...r,
+          evidence: r.evidence_uris || []
+        })),
+        actions,
+        review: { status: audit.status, review_comment: audit.review_comment }
+      });
+
+    } catch (err) {
+      console.error('Error fetching report:', err);
+      setError(err.message || 'Could not load this report.');
+    } finally {
       setLoading(false);
     }
+  };
+
+  useEffect(() => {
+    if (auditId) fetchReportData();
   }, [auditId]);
 
   const stats = useMemo(() => {
@@ -162,42 +213,6 @@ export default function AuditReportModal({ auditId, templateName, onClose }) {
     stats?.review === 'APPROVED' ? 'text-emerald-600'
     : stats?.review === 'REJECTED' ? 'text-rose-600'
     : 'text-blue-600';
-
-  /* -------- raise corrective actions for every failed item -------- */
-  const handleTrackFindings = () => {
-    if (typeof google === 'undefined' || !google.script) {
-      setTrackMsg('google.script.run unavailable (local dev).');
-      return;
-    }
-    setTracking(true);
-    setTrackMsg('');
-    google.script.run
-      .withSuccessHandler((res) => {
-        setTracking(false);
-        if (res && res.success) {
-          setTrackMsg(
-            `${res.actions_created} action(s) created` +
-            (res.skipped ? `, ${res.skipped} already tracked.` : '.')
-          );
-          // refresh so the Actions tab shows the new rows
-          google.script.run
-            .withSuccessHandler((fresh) => { if (fresh && fresh.success) setData(fresh); })
-            .getAuditReport(auditId);
-        } else {
-          setTrackMsg((res && res.message) || 'Could not track findings.');
-        }
-      })
-      .withFailureHandler(() => {
-        setTracking(false);
-        setTrackMsg('Server error while tracking findings.');
-      })
-      .apiTrackFindings({
-        audit_id: auditId,
-        response_ids: failedItems.map(r => r.response_id),
-        owner_email: data?.audit?.auditor_email || '',
-        created_by: data?.audit?.auditor_email || ''
-      });
-  };
 
   /* -------- print / pdf via browser -------- */
   const handlePrint = () => {
@@ -620,17 +635,6 @@ export default function AuditReportModal({ auditId, templateName, onClose }) {
               >
                 <Download className="w-3.5 h-3.5" /> PDF
               </button>
-              {/* {failedItems.length > 0 && (
-                <button
-                  onClick={handleTrackFindings}
-                  disabled={tracking}
-                  className="flex items-center gap-1.5 text-xs font-bold px-4 py-2 rounded-xl bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-colors cursor-pointer"
-                >
-                  {tracking
-                    ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Tracking…</>
-                    : <><Flag className="w-3.5 h-3.5" /> Track these findings</>}
-                </button>
-              )} */}
               <button
                 onClick={onClose}
                 className="text-xs font-bold px-4 py-2 rounded-xl bg-slate-900 text-white hover:bg-slate-800 transition-colors cursor-pointer"

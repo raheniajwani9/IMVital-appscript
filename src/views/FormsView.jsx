@@ -1,10 +1,16 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import {Plus, MoreHorizontal, FileText, Pencil, Trash2,ChevronLeft, ChevronRight, Info, MapPin, User, Calendar,ShieldCheck, Camera, FileSignature, QrCode, LayoutGrid, Clock, Layers, ListChecks, X, ChevronRight as ChevronRightIcon,Search, ChevronDown, ArrowDownAZ, ArrowUpAZ, Clock as ClockIcon, Check, AlertTriangle }from 'lucide-react';
+import {
+  Plus, MoreHorizontal, FileText, Pencil, Trash2, ChevronLeft, ChevronRight, 
+  Info, MapPin, User, Calendar, ShieldCheck, Camera, FileSignature, QrCode, 
+  LayoutGrid, Clock, Layers, ListChecks, X, ChevronRight as ChevronRightIcon,
+  Search, ChevronDown, ArrowDownAZ, ArrowUpAZ, Clock as ClockIcon, Check, AlertTriangle 
+} from 'lucide-react';
 import CreateFormModal from '../components/CreateFormModal';
 import UpdateFormModal from '../components/UpdateFormModal';
 import DeleteFormModal from '../components/DeleteFormModal';
 
-export default function FormsView({ data = [], onRefreshData }) {
+// UPDATED: Now accepts templates, sections, and questions as separate arrays
+export default function FormsView({ templates = [], sections = [], questions = [], data = [], onRefreshData }) {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState('latest');
@@ -17,77 +23,105 @@ export default function FormsView({ data = [], onRefreshData }) {
     { value: 'za', label: 'Z → A', icon: ArrowUpAZ },
   ];
 
+  // 1. RELATIONAL DATA MAPPING (Stitching Supabase tables together)
   const groupedForms = useMemo(() => {
-    if (!Array.isArray(data) || data.length === 0) return [];
-    if (data[0]?.sections) return [...data].reverse();
+    // Fallback if data is passed as a single object from AdminWorkspace
+    const tList = templates.length > 0 ? templates : (data.templates || data || []);
+    const sList = sections.length > 0 ? sections : (data.sections || []);
+    const qList = questions.length > 0 ? questions : (data.question_bank || data.questions || []);
 
-    const cleanData = data.filter((row) => {
-      const id = String(row.template_id || row.template_code || '');
-      const name = String(row.template_name || '');
-      return !id.startsWith('CAT-') && name !== 'Category Metadata Entry';
-    });
-
-    console.log('--- Debug: Cleaned Forms Data ---');
-    console.log('Cleaned Data:', cleanData);
+    if (!Array.isArray(tList) || tList.length === 0) return [];
 
     const map = {};
-    cleanData.forEach((row) => {
-      const key = row.template_id || row.template_code || row.template_name;
-      if (!key) return;
 
-      if (!map[key]) {
-        let formattedDate = row.effective_date || '';
-        if (formattedDate && typeof formattedDate === 'string' && formattedDate.includes('T')) {
-          formattedDate = formattedDate.split('T')[0];
+    // A. Map Templates
+    tList.forEach((t) => {
+      if (!t.template_id || t.template_name === 'Category Metadata Entry') return;
+      
+      let formattedDate = t.effective_date || '';
+      if (formattedDate && typeof formattedDate === 'string' && formattedDate.includes('T')) {
+        formattedDate = formattedDate.split('T')[0];
+      }
+
+      map[t.template_id] = {
+        template_id: t.template_id,
+        template_code: t.template_code || t.template_id,
+        template_name: t.template_name || 'Untitled Form',
+        template_category: t.template_category || 'Operations',
+        template_description: t.template_description || '',
+        template_instructions: t.template_instructions || '',
+        audit_type: t.audit_type || 'Internal Audit',
+        owner: t.template_owner_id || 'System Admin',
+        applicable_locations: t.applicable_locations || 'All Locations',
+        effective_date: formattedDate,
+        template_status: t.template_status === 'Draft' ? 'Draft' : 'Published',
+        template_version: t.template_version || 'v1.0',
+        estimated_minutes: Number(t.estimated_minutes) || 15,
+        sections: []
+      };
+    });
+
+    // B. Attach Sections to Templates
+    sList.forEach((s) => {
+      const parentForm = map[s.template_id];
+      if (parentForm) {
+        parentForm.sections.push({
+          section_id: s.section_id,
+          section_name: s.section_name || 'General Inspection',
+          section_order: Number(s.section_order) || parentForm.sections.length + 1,
+          section_instructions: s.section_instructions || '',
+          questions: []
+        });
+      }
+    });
+
+    // C. Attach Questions to Sections
+    qList.forEach((q) => {
+      const parentForm = map[q.template_id];
+      if (parentForm) {
+        // Find the matching section, or fallback to the first section
+        const section = parentForm.sections.find(sec => sec.section_id === q.section_id) || parentForm.sections[0];
+        
+        if (section) {
+          let tags = [];
+          try { tags = JSON.parse(q.tags_json || '[]'); } catch(e) {}
+
+          let allowedEvidence = [];
+          try { allowedEvidence = JSON.parse(q.allowed_evidence_json || '[]'); } catch(e) {}
+          
+          section.questions.push({
+            question_id: q.question_id,
+            question_text: q.question_text || q.help_text,
+            response_type: q.response_type || 'YES_NO',
+            evidence_policy: q.evidence_policy || 'OPTIONAL',
+            allowed_evidence: allowedEvidence,
+            scored: String(q.scored).toLowerCase() === 'true' || q.scored === true,
+            max_score: Number(q.max_score || q.points) || 0,
+            points: Number(q.max_score || q.points) || 0,
+            failure_response: q.failure_response || 'NONE',
+            critical_question: String(q.critical_question).toLowerCase() === 'true' || q.critical_question === true,
+            na_allowed: String(q.na_allowed).toLowerCase() === 'true' || q.na_allowed === true,
+            risk_category: q.risk_category || 'General',
+            tags: tags,
+            comment_required: q.comment_required || 'NEVER',
+            question_order: Number(q.question_order) || section.questions.length + 1,
+            is_required: q.required,
+            instructions: q.instructions || q.template_instructions || ''
+          });
         }
-        map[key] = {
-          template_id: key,
-          template_code: row.template_code || key,
-          template_name: row.template_name || row.section_name || 'Untitled Form',
-          template_category: row.template_category || row.category || 'Operations',
-          template_description: row.template_description || '',
-          template_instructions: row.template_instructions || row.instructions || row.section_instructions || '',
-          audit_type: row.audit_type || 'Internal Audit',
-          owner: row.template_owner_id || row.owner || 'System Admin',
-          applicable_locations: row.applicable_locations || row.locations || 'All Locations',
-          effective_date: formattedDate,
-          template_status: row.template_status === 'Published' ? 'Published' : 'Draft',
-          template_version: row.template_version || 'v1.0',
-          estimated_minutes: Number(row.estimated_minutes) || 15,
-          sections: []
-        };
       }
+    });
 
-      const secName = row.section_name || 'General Inspection';
-      let sec = map[key].sections.find((s) => s.section_name === secName);
-      if (!sec) {
-        sec = { section_name: secName, section_order: Number(row.section_order) || 1, section_instructions: row.section_instructions || '', questions: [] };
-        map[key].sections.push(sec);
-      }
-
-            const qText = row.question_text || row.help_text;
-            if (qText) {
-              let tags = [];
-              try { tags = JSON.parse(row.tags_json || '[]'); } catch (e) { tags = []; }
-              sec.questions.push({
-                question_id: row.question_id || `${key}-Q${sec.questions.length + 1}`,
-                question_text: qText,
-                response_type: row.response_type || 'YES_NO',
-                evidence_policy: row.evidence_policy || 'NONE',
-                scored: String(row.scored).toLowerCase() === 'true',
-                max_score: Number(row.max_score ?? row.points) || 0,
-                failure_response: row.failure_response || 'NONE',
-                critical_question: String(row.critical_question).toLowerCase() === 'true',
-                na_allowed: String(row.na_allowed).toLowerCase() === 'true',
-                risk_category: row.risk_category || 'General',
-                tags,
-                comment_required: row.comment_required || 'NEVER'
-              });
-            }
+    // D. Sort sections and questions by their order
+    Object.values(map).forEach(form => {
+      form.sections.sort((a, b) => a.section_order - b.section_order);
+      form.sections.forEach(sec => {
+        sec.questions.sort((a, b) => a.question_order - b.question_order);
+      });
     });
 
     return Object.values(map).reverse();
-  }, [data]);
+  }, [templates, sections, questions, data]);
 
   const filteredAndSortedForms = useMemo(() => {
     let result = [...groupedForms];
@@ -267,7 +301,6 @@ export default function FormsView({ data = [], onRefreshData }) {
         ) : (
           <>
             {/* ═══ LEFT: Cards list ═══ */}
-            {/* Below lg the preview takes over the viewport (master/detail), so hide the list */}
             <div
               className={`flex-col ${
                 previewForm ? 'hidden lg:flex lg:w-[60%]' : 'flex w-full'
@@ -337,7 +370,7 @@ export default function FormsView({ data = [], onRefreshData }) {
                 })}
               </div>
 
-              {/* ═══ Pagination (always visible at bottom) ═══ */}
+              {/* ═══ Pagination ═══ */}
               <div className="shrink-0 flex items-center justify-between pt-3 mt-1 border-t border-slate-200 text-xs">
                 <span className="text-slate-500 font-medium">
                   {filteredAndSortedForms.length === 0

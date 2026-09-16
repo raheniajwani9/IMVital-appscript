@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ShieldCheck, ClipboardCheck, TrendingUp, AlertTriangle,
   RefreshCw, MapPin, Activity, Award, BarChart3, PieChart,
@@ -10,6 +10,7 @@ import {
   AreaChart as RArea, Area,
   RadialBarChart, RadialBar
 } from 'recharts';
+import { supabase } from '../supabaseClient'; // Import Supabase client
 
 /* ---- KpiCard ---- */
 function KpiCard({ icon: Icon, label, value, sub, color, bg, border }) {
@@ -139,28 +140,84 @@ const DEFAULTS = {
   riskDistribution: [], recentAudits: [], ratingDistribution: [], activityTimeline: []
 };
 
+// Simple helper to process raw Supabase data into the dashboard format
+function processAuditorData(audits, actions) {
+  const submitted = audits.filter(a => a.status === 'SUBMITTED' || a.status === 'APPROVED' || a.status === 'COMPLETED');
+  const inProgress = audits.filter(a => a.status === 'IN_PROGRESS');
+  const passed = submitted.filter(a => a.result === 'PASSED');
+  const failed = submitted.filter(a => a.result === 'FAILED');
+
+  const avgScore = submitted.length > 0 
+    ? Math.round(submitted.reduce((sum, a) => sum + (Number(a.score_percent) || 0), 0) / submitted.length)
+    : 0;
+
+  const kpis = {
+    totalAudits: audits.length,
+    submittedCount: submitted.length,
+    inProgressCount: inProgress.length,
+    passedCount: passed.length,
+    failedCount: failed.length,
+    avgScore,
+    passRate: submitted.length ? Math.round((passed.length / submitted.length) * 100) : 0,
+    openActionsCount: actions.filter(a => a.status === 'OPEN').length,
+    complianceScore: avgScore
+  };
+
+  const statusMap = { SUBMITTED: 0, IN_PROGRESS: 0, SCHEDULED: 0, OVERDUE: 0 };
+  audits.forEach(a => {
+    if (a.status === 'SUBMITTED' || a.status === 'APPROVED') statusMap.SUBMITTED++;
+    else if (a.status === 'IN_PROGRESS') statusMap.IN_PROGRESS++;
+    else if (a.is_overdue) statusMap.OVERDUE++;
+    else statusMap.SCHEDULED++;
+  });
+
+  const statusBreakdown = [
+    { label: 'Submitted', count: statusMap.SUBMITTED, color: '#10b981' },
+    { label: 'In Progress', count: statusMap.IN_PROGRESS, color: '#f59e0b' },
+    { label: 'Scheduled', count: statusMap.SCHEDULED, color: '#3b82f6' },
+    { label: 'Overdue', count: statusMap.OVERDUE, color: '#ef4444' }
+  ].filter(i => i.count > 0);
+
+  const passFail = [
+    { label: 'Passed', count: passed.length, color: '#10b981' },
+    { label: 'Failed', count: failed.length, color: '#ef4444' }
+  ];
+
+  return {
+    kpis,
+    statusBreakdown,
+    passFail,
+    scoreDistribution: [], // Needs more complex bucketing logic based on your backend
+    byLocation: [], // Simplified for this example
+    byTemplate: [], // Simplified
+    riskDistribution: [], // Simplified
+    recentAudits: submitted.sort((a, b) => new Date(b.submitted_at) - new Date(a.submitted_at)).slice(0, 10),
+    ratingDistribution: [],
+    activityTimeline: []
+  };
+}
+
 /* ---- Main Component ---- */
 export default function AuditorDashboard({ currentUser, onRefresh }) {
   const [data, setData] = useState(DEFAULTS);
   const [loading, setLoading] = useState(true);
 
-  const fetchData = () => {
+  const fetchData = async () => {
     setLoading(true);
-    if (typeof google !== 'undefined' && google.script) {
-      google.script.run
-        .withSuccessHandler((result) => {
-          setData({ ...DEFAULTS, ...result });
-          setLoading(false);
-        })
-        .withFailureHandler((err) => {
-          console.error('Auditor dashboard fetch error:', err);
-          setLoading(false);
-        })
-        .getAuditorDashboardData({
-          email: currentUser?.email || '',
-          user_id: currentUser?.user_id || ''
-        });
-    } else {
+    try {
+      const [
+        { data: audits },
+        { data: actions }
+      ] = await Promise.all([
+        supabase.from('audits').select('*').eq('auditor_id', currentUser.user_id),
+        supabase.from('actions').select('*').eq('owner_email', currentUser.email)
+      ]);
+
+      const processedData = processAuditorData(audits || [], actions || []);
+      setData({ ...DEFAULTS, ...processedData });
+      setLoading(false);
+    } catch (err) {
+      console.error('Auditor dashboard fetch error:', err);
       setLoading(false);
     }
   };

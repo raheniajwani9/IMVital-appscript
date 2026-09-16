@@ -7,6 +7,7 @@ import AuditRunnerView from '../views/AuditRunnerView';
 import { NAV_CONFIG } from '../constants/navigation';
 import AuditorCalendarView from '../views/AuditorCalendarView';
 import AuditorDashboard from '../pages/AuditorDashboard';
+import { supabase } from '../supabaseClient'; 
 
 const DEFAULT_DATA = {
   assignments: [],
@@ -19,33 +20,121 @@ export default function AuditorWorkspace({ currentUser, onLogout }) {
   const [currentTab, setCurrentTab] = useState(NAV_CONFIG.AUDITOR.defaultTab);
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState(DEFAULT_DATA);
-  const [runner, setRunner] = useState(null); // { assignment, template }
+  const [runner, setRunner] = useState(null); 
   const [toast, setToast] = useState('');
 
-  const fetchData = () => {
+  const fetchData = async () => {
+    // Guard clause: Wait until user object is fully populated
+    if (!currentUser?.email) {
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
-    if (typeof google !== 'undefined' && google.script) {
-      google.script.run
-        .withSuccessHandler((result) => {
-          setData({ ...DEFAULT_DATA, ...result });
-          setLoading(false);
-        })
-        .withFailureHandler((err) => {
-          console.error('Apps Script Fetch Error:', err);
-          setLoading(false);
-        })
-        // UPDATED: Now passing user_id to correctly match database rows
-        .getAuditorData({ 
-          email: currentUser.email, 
-          name: currentUser.name,
-          user_id: currentUser.user_id 
+    try {
+      // 1. Fetch schedules safely using clean lowercased email string
+      const userEmail = String(currentUser.email).trim();
+      const userId = currentUser.user_id || currentUser.id;
+
+      const [
+        schedulesRes,
+        auditsRes,
+        templatesRes,
+        sectionsRes,
+        questionsRes,
+        locationsRes
+      ] = await Promise.all([
+        supabase.from('schedules').select('*').ilike('assigned_auditor_email', userEmail),
+        userId ? supabase.from('audits').select('*').eq('auditor_id', userId) : Promise.resolve({ data: [] }),
+        supabase.from('templates').select('*'),
+        supabase.from('sections').select('*'),
+        supabase.from('question_bank').select('*'),
+        supabase.from('locations').select('*')
+      ]);
+
+      if (schedulesRes.error) console.error("Schedules Fetch Error (400 check):", schedulesRes.error);
+      if (auditsRes.error) console.error("Audits Fetch Error:", auditsRes.error);
+      if (templatesRes.error) console.error("Templates Fetch Error:", templatesRes.error);
+      if (sectionsRes.error) console.error("Sections Fetch Error:", sectionsRes.error);
+      if (questionsRes.error) console.error("Questions Fetch Error:", questionsRes.error);
+
+      const tList = templatesRes.data || [];
+      const sList = sectionsRes.data || [];
+      const qList = questionsRes.data || [];
+
+      // 2. Stitch Templates -> Sections -> Questions
+      const assembledTemplates = tList.map((tmpl) => {
+        const tmplId = String(tmpl.template_id || tmpl.id || '');
+
+        // Find sections for this template
+        let tmplSections = sList
+          .filter((s) => String(s.template_id) === tmplId)
+          .sort((a, b) => (Number(a.section_order) || 0) - (Number(b.section_order) || 0));
+
+        // Map questions to sections
+        let sectionsWithQuestions = tmplSections.map((sec) => {
+          const secId = String(sec.section_id || '');
+          const secQuestions = qList
+            .filter(
+              (q) =>
+                String(q.template_id) === tmplId &&
+                (String(q.section_id) === secId || !q.section_id)
+            )
+            .sort((a, b) => (Number(a.question_order) || 0) - (Number(b.question_order) || 0));
+
+          return {
+            ...sec,
+            questions: secQuestions
+          };
         });
-    } else {
+
+        // Fallback: If sections exist in question_bank but not in `sections` table
+        if (sectionsWithQuestions.length === 0) {
+          const tmplQuestions = qList
+            .filter((q) => String(q.template_id) === tmplId)
+            .sort((a, b) => (Number(a.question_order) || 0) - (Number(b.question_order) || 0));
+
+          if (tmplQuestions.length > 0) {
+            sectionsWithQuestions = [
+              {
+                section_id: 'sec-default',
+                section_name: 'General Inspection',
+                section_order: 1,
+                questions: tmplQuestions
+              }
+            ];
+          }
+        }
+
+        const totalQuestionsCount = sectionsWithQuestions.reduce(
+          (acc, sec) => acc + (sec.questions?.length || 0),
+          0
+        );
+
+        return {
+          ...tmpl,
+          sections: sectionsWithQuestions,
+          questions_count: totalQuestionsCount
+        };
+      });
+
+      setData({
+        assignments: schedulesRes.data || [],
+        audits: auditsRes.data || [],
+        templates: assembledTemplates,
+        locations: locationsRes.data || []
+      });
+
+    } catch (err) {
+      console.error('Unhandled Supabase Fetch Error:', err);
+    } finally {
       setLoading(false);
     }
   };
 
-  useEffect(fetchData, [currentUser.email, currentUser.user_id]);
+  useEffect(() => {
+    fetchData();
+  }, [currentUser?.email, currentUser?.user_id]);
 
   useEffect(() => {
     if (!toast) return;
@@ -53,16 +142,34 @@ export default function AuditorWorkspace({ currentUser, onLogout }) {
     return () => clearTimeout(timer);
   }, [toast]);
 
+  const enrichedAssignments = useMemo(() => {
+    return data.assignments.map((assignment) => {
+      // FIX: Filter matching audits, and prioritize SUBMITTED if duplicates exist
+      const matchingAudits = data.audits.filter((a) => a.schedule_id === assignment.schedule_id);
+      const isSubmitted = matchingAudits.some(a => a.status === 'SUBMITTED');
+      
+      return {
+        ...assignment,
+        audit_status: isSubmitted ? 'SUBMITTED' : (matchingAudits[0]?.status || 'SCHEDULED')
+      };
+    });
+  }, [data.assignments, data.audits]);
+
   const counts = useMemo(
     () => ({
-      pending: data.assignments.filter((a) => a.audit_status !== 'SUBMITTED').length,
-      submitted: data.assignments.filter((a) => a.audit_status === 'SUBMITTED').length
+      pending: enrichedAssignments.filter((a) => a.audit_status !== 'SUBMITTED').length,
+      submitted: enrichedAssignments.filter((a) => a.audit_status === 'SUBMITTED').length
     }),
-    [data.assignments]
+    [enrichedAssignments]
   );
 
   const handleStartAudit = (assignment, template) => {
-    setRunner({ assignment, template });
+    const fullTemplate =
+      data.templates.find(
+        (t) => String(t.template_id) === String(assignment.template_id || template?.template_id)
+      ) || template;
+
+    setRunner({ assignment, template: fullTemplate });
     window.scrollTo({ top: 0 });
   };
 
@@ -72,6 +179,7 @@ export default function AuditorWorkspace({ currentUser, onLogout }) {
       setToast(
         `Audit submitted successfully${result.score !== undefined ? ` — score ${result.score}%` : ''}.`
       );
+      fetchData(); 
     }
     window.scrollTo({ top: 0 });
   };
@@ -118,7 +226,7 @@ export default function AuditorWorkspace({ currentUser, onLogout }) {
           />
         ) : currentTab === 'MyAudits' ? (
           <MyAuditsView
-            assignments={data.assignments}
+            assignments={enrichedAssignments}
             templates={data.templates}
             currentUser={currentUser}
             onStartAudit={handleStartAudit}
@@ -126,7 +234,7 @@ export default function AuditorWorkspace({ currentUser, onLogout }) {
           />
         ) : currentTab === 'Calendar' ? (
           <AuditorCalendarView
-            assignments={data.assignments}
+            assignments={enrichedAssignments}
             templates={data.templates}
             currentUser={currentUser}
             onStartAudit={handleStartAudit}
