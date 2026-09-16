@@ -3,6 +3,7 @@ import LoginScreen from './components/LoginScreen';
 import AdminWorkspace from './workspaces/AdminWorkspace';
 import AuditorWorkspace from './workspaces/AuditorWorkspace';
 import { resolveWorkspace } from './constants/navigation';
+import { supabase } from './supabaseClient'; // 1. Import your Supabase client
 
 export default function App() {
   // Persistent User Authentication State
@@ -15,10 +16,11 @@ export default function App() {
     }
   });
 
-  // Offline Sync Queue Handler
+  // Offline Sync Queue Handler (Updated for Supabase)
   useEffect(() => {
-    const processOfflineQueue = () => {
-      if (!navigator.onLine || typeof google === 'undefined' || !google.script) return;
+    const processOfflineQueue = async () => {
+      // If offline, do nothing and wait for reconnection
+      if (!navigator.onLine) return;
 
       const rawQueue = localStorage.getItem('offline_sync_queue');
       if (!rawQueue) return;
@@ -27,20 +29,62 @@ export default function App() {
         const queue = JSON.parse(rawQueue);
         if (!Array.isArray(queue) || queue.length === 0) return;
 
-        const syncNext = (index) => {
-          if (index >= queue.length) {
-            localStorage.removeItem('offline_sync_queue');
-            return;
+        // Process queue items sequentially
+        for (let i = 0; i < queue.length; i++) {
+          const item = queue[i];
+
+          try {
+            // 2. Update the parent audit record to SUBMITTED
+            const { error: auditError } = await supabase
+              .from('audits')
+              .update({
+                status: 'SUBMITTED',
+                submitted_at: new Date().toISOString(),
+                total_score: item.summary?.score || 0,
+                max_score: item.summary?.max || 0,
+                score_percent: item.summary?.percent || 0,
+                rating: item.summary?.rating || '—',
+                critical_failures: item.summary?.criticalFailures || 0,
+                failure_count: item.summary?.failures || 0,
+                answered_questions: item.summary?.answered || 0,
+                total_questions: item.summary?.total || 0,
+                result: (item.summary?.percent >= 75 && item.summary?.criticalFailures === 0) ? 'PASSED' : 'FAILED', 
+              })
+              .eq('audit_id', item.audit_id);
+              
+            if (auditError) throw auditError;
+
+            // 3. Insert responses into the database
+            if (item.answers) {
+              const responsesToInsert = Object.entries(item.answers).map(([qId, ans]) => ({
+                response_id: `RES-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+                audit_id: item.audit_id,
+                question_id: qId,
+                template_id: item.template_id,
+                response_value: ans.na ? 'N/A' : ans.value,
+                comment: ans.comment || '',
+                answered_by: item.auditor_id,
+                answered_at: new Date().toISOString()
+              }));
+              
+              if (responsesToInsert.length > 0) {
+                 const { error: responsesError } = await supabase
+                  .from('responses')
+                  .insert(responsesToInsert);
+
+                 if (responsesError) throw responsesError;
+              }
+            }
+          } catch (err) {
+            console.error('Failed to sync offline item:', item.audit_id, err);
+            // Stop processing if an error occurs so we don't clear the queue prematurely
+            return; 
           }
+        }
 
-          const item = queue[index];
-          google.script.run
-            .withSuccessHandler(() => syncNext(index + 1))
-            .withFailureHandler(() => syncNext(index + 1))
-            .apiSubmitAudit(item);
-        };
+        // If we get here, all items synced successfully! Clear the queue.
+        localStorage.removeItem('offline_sync_queue');
 
-        syncNext(0);
       } catch (err) {
         console.error('Failed to parse offline sync queue:', err);
       }
