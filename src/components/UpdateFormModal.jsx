@@ -5,6 +5,7 @@ import {
   ChevronLeft, Check, ArrowRight, Pencil,
   ShieldCheck, AlertTriangle
 } from 'lucide-react';
+import { supabase } from '../supabaseClient'; // 1. Import your Supabase client
 
 const RESPONSE_TYPES = [
   { value: 'YES_NO', label: 'Yes / No' }, { value: 'PASS_FAIL', label: 'Pass / Fail' },
@@ -87,6 +88,7 @@ export default function UpdateFormModal({ form, onClose, onUpdated }) {
   const [isAddingCategory, setIsAddingCategory] = useState(false);
   const [newCategoryInput, setNewCategoryInput] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
 
   const [formData, setFormData] = useState(() => ({
     template_id: form?.template_id || '',
@@ -159,46 +161,91 @@ export default function UpdateFormModal({ form, onClose, onUpdated }) {
   const toggleInstructions = (sIdx, qIdx) => setFormData((prev) => ({ ...prev, sections: prev.sections.map((sec, i) => { if (i !== sIdx) return sec; return { ...sec, questions: sec.questions.map((q, j) => (j === qIdx ? { ...q, showInstructions: !q.showInstructions } : q)) }; }) }));
   const removeQuestion = (sIdx, qIdx) => setFormData((prev) => ({ ...prev, sections: prev.sections.map((sec, i) => { if (i !== sIdx) return sec; return { ...sec, questions: sec.questions.filter((_, j) => j !== qIdx) }; }) }));
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     if (e && e.preventDefault) e.preventDefault();
     if (!isStep1Valid) { setStep(0); return; }
     if (!hasAnyQuestions) { setStep(1); return; }
-    const allInstructions = formData.sections.flatMap((s) => s.questions).map((q) => q.instructions).filter(Boolean);
-    const fallbackInstruction = allInstructions.join(' | ') || formData.template_instructions || '';
-    const cleanedPayload = {
-      ...formData, template_id: form?.template_id, template_instructions: fallbackInstruction,
-      template_status: 'Published',
-      estimated_minutes: Number(formData.estimated_minutes) || 0,
-      sample_size: Number(formData.sample_size) || 0,
-      sections: formData.sections.map((sec, secIdx) => {
-        const secInstruction = sec.questions.map((q) => q.instructions).filter(Boolean).join(' | ') || fallbackInstruction;
-        return { ...sec, section_order: secIdx + 1, section_instructions: secInstruction, questions: sec.questions.filter((q) => q.question_text.trim() !== '').map((q) => ({
-          ...q, required: q.is_required ? true : false, is_required: q.is_required,
-          // Comments are metadata only — they never contribute to scoring.
-          scored: q.scored || false,
-          max_score: Number(q.points) || 0,
-          failure_response: q.failure_response || 'NONE',
-          critical_question: q.critical_question || false,
-          na_allowed: q.na_allowed || false,
-          risk_category: q.risk_category || 'General',
-          tags_json: JSON.stringify(q.tags || []),
-          comment_required: q.comment_required || 'NEVER',
-          evidence_policy: q.evidence_policy || 'OPTIONAL',
-          allowed_evidence_json: JSON.stringify(q.allowed_evidence || []),
-          gps_config_json: JSON.stringify(q.gps_config || {}),
-          barcode_config_json: JSON.stringify(q.barcode_config || {}),
-          signature_config_json: JSON.stringify(q.signature_config || {}),
-          points: Number(q.points) || 0,
-          template_instructions: q.instructions || secInstruction || fallbackInstruction,
-          section_instructions: q.instructions || secInstruction || '',
-          instructions: q.instructions || ''
-        })) };
-      })
-    };
+
+    setError('');
     setSubmitting(true);
-    if (typeof google !== 'undefined' && google.script) {
-      google.script.run.withSuccessHandler(() => { setSubmitting(false); if (onUpdated) onUpdated(); onClose(); }).withFailureHandler((err) => { console.error('Error updating form:', err); setSubmitting(false); }).apiUpdateTemplate(cleanedPayload);
-    } else { setTimeout(() => { setSubmitting(false); if (onUpdated) onUpdated(); onClose(); }, 500); }
+    const templateId = formData.template_id;
+
+    try {
+      // 1. Update the Templates table
+      const { error: templateError } = await supabase
+        .from('templates')
+        .update({
+          template_name: formData.template_name,
+          template_category: formData.template_category,
+          template_description: formData.template_description,
+          estimated_minutes: Number(formData.estimated_minutes) || 15
+        })
+        .eq('template_id', templateId);
+
+      if (templateError) throw templateError;
+
+      // 2. Clear out old sections and questions to prevent orphaned data
+      // Supabase cascade delete handles question_bank if we delete sections, but let's be explicit
+      await supabase.from('question_bank').delete().eq('template_id', templateId);
+      await supabase.from('sections').delete().eq('template_id', templateId);
+
+      // 3. Insert fresh sections & questions
+      for (let secIdx = 0; secIdx < formData.sections.length; secIdx++) {
+        const sec = formData.sections[secIdx];
+        const sectionId = `${templateId}-SEC-${secIdx + 1}`;
+        
+        // Insert section
+        const { error: sectionError } = await supabase
+          .from('sections')
+          .insert([{
+            section_id: sectionId,
+            template_id: templateId,
+            section_name: sec.section_name || `Section ${secIdx + 1}`,
+            section_order: secIdx + 1,
+            section_instructions: sec.section_instructions || ''
+          }]);
+
+        if (sectionError) throw sectionError;
+
+        // Prepare questions for this section
+        const validQuestions = sec.questions.filter(q => q.question_text.trim() !== '');
+        if (validQuestions.length > 0) {
+          const questionsToInsert = validQuestions.map((q, qIdx) => ({
+            question_id: `${sectionId}-Q${qIdx + 1}`,
+            template_id: templateId,
+            section_id: sectionId,
+            question_text: q.question_text,
+            question_order: qIdx + 1,
+            response_type: q.response_type,
+            required: q.is_required,
+            scored: q.scored,
+            max_score: Number(q.points) || 0,
+            failure_response: q.failure_response,
+            critical_question: q.critical_question,
+            na_allowed: q.na_allowed,
+            risk_category: q.risk_category,
+            comment_required: q.comment_required,
+            evidence_policy: q.evidence_policy
+          }));
+
+          // Insert questions
+          const { error: questionsError } = await supabase
+            .from('question_bank')
+            .insert(questionsToInsert);
+
+          if (questionsError) throw questionsError;
+        }
+      }
+
+      setSubmitting(false);
+      if (onUpdated) onUpdated();
+      onClose();
+
+    } catch (err) {
+      console.error('Error updating form:', err);
+      setError(err.message || 'Failed to update form.');
+      setSubmitting(false);
+    }
   };
 
   const inputCls = "w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all";
@@ -224,6 +271,13 @@ export default function UpdateFormModal({ form, onClose, onUpdated }) {
               <X className="w-5 h-5" />
             </button>
           </div>
+
+          {error && (
+            <div className="mb-2 p-2 bg-rose-50 border border-rose-200 rounded-xl text-rose-600 text-[11px] font-semibold flex items-center gap-2">
+              <AlertTriangle className="w-3.5 h-3.5" />
+              {error}
+            </div>
+          )}
 
           <div className="flex items-center gap-2 mt-4 overflow-x-auto pb-1">
             <div className="flex items-center gap-2 shrink-0">
@@ -310,17 +364,6 @@ export default function UpdateFormModal({ form, onClose, onUpdated }) {
                   <label className={labelCls}>Description</label>
                   <textarea rows="2" placeholder="Brief description of what this form is for..." className={inputCls} value={formData.template_description} onChange={(e) => handleChange('template_description', e.target.value)} />
                 </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className={labelCls}>Owner</label>
-                    <input type="text" className={inputCls} value={formData.template_owner_id} onChange={(e) => handleChange('template_owner_id', e.target.value)} />
-                  </div>
-                  <div>
-                    <label className={labelCls}>Effective Date</label>
-                    <input type="date" className={inputCls} value={formData.effective_date} onChange={(e) => handleChange('effective_date', e.target.value)} />
-                  </div>
-                </div>
               </div>
             </div>
           )}
@@ -405,7 +448,7 @@ export default function UpdateFormModal({ form, onClose, onUpdated }) {
                         </div>
                       </div>
 
-                      {/* ── §13 Scoring & Validation ── */}
+                      {/* ── Scoring & Validation ── */}
                       <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-3">
                         <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-500 uppercase tracking-wide">
                           <ShieldCheck className="w-3.5 h-3.5" /> Scoring & Validation
@@ -468,33 +511,6 @@ export default function UpdateFormModal({ form, onClose, onUpdated }) {
                           })}
                         </div>
                       </div>
-
-                      {(q.allowed_evidence || []).includes('GPS') && (
-                        <div className="bg-blue-50/40 border border-blue-100 rounded-xl p-3 space-y-2">
-                          <div className="flex items-center gap-1.5 text-xs font-bold text-blue-700"><MapPin className="w-3.5 h-3.5" /> GPS Settings</div>
-                          <div className="flex items-center gap-4">
-                            <label className="flex flex-col gap-1 text-xs text-slate-500">Max accuracy (meters)<input type="number" className="bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm text-slate-700 w-32 focus:outline-none focus:ring-2 focus:ring-blue-500/20" value={q.gps_config?.max_accuracy_meters || 50} onChange={(e) => updateQuestion(currentSectionIdx, qIdx, 'gps_config', { ...q.gps_config, max_accuracy_meters: Number(e.target.value) })} /></label>
-                            <label className="flex items-center gap-2 text-xs font-medium text-slate-600 cursor-pointer mt-5"><input type="checkbox" checked={q.gps_config?.require_geofence || false} onChange={(e) => updateQuestion(currentSectionIdx, qIdx, 'gps_config', { ...q.gps_config, require_geofence: e.target.checked })} className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer" />Require geofence validation</label>
-                          </div>
-                        </div>
-                      )}
-
-                      {(q.allowed_evidence || []).includes('BARCODE') && (
-                        <div className="bg-emerald-50/40 border border-emerald-100 rounded-xl p-3 space-y-2">
-                          <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-700"><QrCode className="w-3.5 h-3.5" /> QR / Barcode Settings</div>
-                          <div className="flex items-center gap-4 flex-wrap">
-                            <div className="flex flex-col gap-1 text-xs text-slate-500">Verification type<select className="bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm text-slate-700 w-44 focus:outline-none focus:ring-2 focus:ring-emerald-500/20" value={q.barcode_config?.verification_type || 'ASSET'} onChange={(e) => updateQuestion(currentSectionIdx, qIdx, 'barcode_config', { ...q.barcode_config, verification_type: e.target.value })}><option value="STORE">Store Verification</option><option value="ASSET">Asset Verification</option><option value="LOCATION">Location Verification</option><option value="CHECKLIST_INIT">Checklist Initiation</option></select></div>
-                            <label className="flex items-center gap-2 text-xs font-medium text-slate-600 cursor-pointer mt-5"><input type="checkbox" checked={q.barcode_config?.allow_manual_fallback ?? true} onChange={(e) => updateQuestion(currentSectionIdx, qIdx, 'barcode_config', { ...q.barcode_config, allow_manual_fallback: e.target.checked })} className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer" />Allow manual entry fallback</label>
-                          </div>
-                        </div>
-                      )}
-
-                      {(q.allowed_evidence || []).includes('SIGNATURE') && (
-                        <div className="bg-purple-50/40 border border-purple-100 rounded-xl p-3 space-y-2">
-                          <div className="flex items-center gap-1.5 text-xs font-bold text-purple-700"><FileSignature className="w-3.5 h-3.5" /> Signature Settings</div>
-                          <div className="flex flex-col gap-1 text-xs text-slate-500">Required signer role<select className="bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm text-slate-700 w-56 focus:outline-none focus:ring-2 focus:ring-purple-500/20" value={q.signature_config?.signer_role || 'Store Manager'} onChange={(e) => updateQuestion(currentSectionIdx, qIdx, 'signature_config', { ...q.signature_config, signer_role: e.target.value })}><option value="Store Manager">Store Manager Acknowledgement</option><option value="Supervisor">Supervisor Sign-off</option><option value="Auditor">Auditor Corrective Sign-off</option></select></div>
-                        </div>
-                      )}
                     </div>
                   ))}
 

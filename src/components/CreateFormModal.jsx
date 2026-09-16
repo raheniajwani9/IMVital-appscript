@@ -4,6 +4,7 @@ import {
   Layers, FileText, ChevronLeft, Check, ArrowRight,
   ShieldCheck, AlertTriangle
 } from 'lucide-react';
+import { supabase } from '../supabaseClient'; // 1. Import your Supabase client
 
 const RESPONSE_TYPES = [
   { value: 'YES_NO', label: 'Yes / No' }, { value: 'PASS_FAIL', label: 'Pass / Fail' },
@@ -58,6 +59,7 @@ export default function CreateFormModal({ existingForms = [], onClose, onCreated
   const [isAddingCategory, setIsAddingCategory] = useState(false);
   const [newCategoryInput, setNewCategoryInput] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
 
   const [formData, setFormData] = useState({
     template_name: '', template_category: categories[0] || 'Operations',
@@ -116,42 +118,89 @@ export default function CreateFormModal({ existingForms = [], onClose, onCreated
   const toggleInstructions = (sIdx, qIdx) => setFormData((prev) => ({ ...prev, sections: prev.sections.map((sec, i) => { if (i !== sIdx) return sec; return { ...sec, questions: sec.questions.map((q, j) => (j === qIdx ? { ...q, showInstructions: !q.showInstructions } : q)) }; }) }));
   const removeQuestion = (sIdx, qIdx) => setFormData((prev) => ({ ...prev, sections: prev.sections.map((sec, i) => { if (i !== sIdx) return sec; return { ...sec, questions: sec.questions.filter((_, j) => j !== qIdx) }; }) }));
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     if (e && e.preventDefault) e.preventDefault();
     if (!isStep1Valid) { setStep(0); return; }
     if (!hasAnyQuestions) { setStep(1); return; }
-    const allInstructions = formData.sections.flatMap((s) => s.questions).map((q) => q.instructions).filter(Boolean);
-    const fallbackInstruction = allInstructions.join(' | ') || formData.template_instructions || '';
-    const cleanedPayload = {
-      ...formData, template_instructions: fallbackInstruction,
-      estimated_minutes: Number(formData.estimated_minutes) || 0,
-      sample_size: Number(formData.sample_size) || 0,
-      sections: formData.sections.map((sec, secIdx) => {
-        const secInstruction = sec.questions.map((q) => q.instructions).filter(Boolean).join(' | ') || fallbackInstruction;
-        return { ...sec, section_order: secIdx + 1, section_instructions: secInstruction, questions: sec.questions.filter((q) => q.question_text.trim() !== '').map((q) => ({
-          ...q,
-          required: q.is_required ? true : false, is_required: q.is_required,
-          scored: q.scored || false,
-          max_score: Number(q.points) || 0,
-          failure_response: q.failure_response || 'NONE',
-          critical_question: q.critical_question || false,
-          na_allowed: q.na_allowed || false,
-          risk_category: q.risk_category || 'General',
-          tags_json: JSON.stringify(q.tags || []),
-          comment_required: q.comment_required || 'NEVER',
-          evidence_policy: q.evidence_policy || 'OPTIONAL',
-          allowed_evidence_json: JSON.stringify(q.allowed_evidence || []),
-          points: Number(q.points) || 0,
-          template_instructions: q.instructions || secInstruction || fallbackInstruction,
-          section_instructions: q.instructions || secInstruction || '',
-          instructions: q.instructions || ''
-        })) };
-      })
-    };
+
+    setError('');
     setSubmitting(true);
-    if (typeof google !== 'undefined' && google.script) {
-      google.script.run.withSuccessHandler(() => { setSubmitting(false); if (onCreated) onCreated(); onClose(); }).withFailureHandler((err) => { console.error('Error creating form:', err); setSubmitting(false); }).apiCreateTemplate(cleanedPayload);
-    } else { setTimeout(() => { setSubmitting(false); if (onCreated) onCreated(); onClose(); }, 500); }
+    const templateId = `TMP-${Date.now()}`;
+
+    try {
+      // 1. Insert into templates table
+      const { error: templateError } = await supabase
+        .from('templates')
+        .insert([{
+          template_id: templateId,
+          template_name: formData.template_name,
+          template_category: formData.template_category,
+          template_description: formData.template_description,
+          template_status: 'Published',
+          template_version: 'v1.0',
+          estimated_minutes: Number(formData.estimated_minutes) || 15,
+          active: true
+        }]);
+
+      if (templateError) throw templateError;
+
+      // 2. Prepare sections & questions for insertion
+      for (let secIdx = 0; secIdx < formData.sections.length; secIdx++) {
+        const sec = formData.sections[secIdx];
+        const sectionId = `${templateId}-SEC-${secIdx + 1}`;
+        
+        // Insert section
+        const { error: sectionError } = await supabase
+          .from('sections')
+          .insert([{
+            section_id: sectionId,
+            template_id: templateId,
+            section_name: sec.section_name || `Section ${secIdx + 1}`,
+            section_order: secIdx + 1,
+            section_instructions: sec.section_instructions || ''
+          }]);
+
+        if (sectionError) throw sectionError;
+
+        // Prepare questions for this section
+        const validQuestions = sec.questions.filter(q => q.question_text.trim() !== '');
+        if (validQuestions.length > 0) {
+          const questionsToInsert = validQuestions.map((q, qIdx) => ({
+            question_id: `${sectionId}-Q${qIdx + 1}`,
+            template_id: templateId,
+            section_id: sectionId,
+            question_text: q.question_text,
+            question_order: qIdx + 1,
+            response_type: q.response_type,
+            required: q.is_required,
+            scored: q.scored,
+            max_score: Number(q.points) || 0,
+            failure_response: q.failure_response,
+            critical_question: q.critical_question,
+            na_allowed: q.na_allowed,
+            risk_category: q.risk_category,
+            comment_required: q.comment_required,
+            evidence_policy: q.evidence_policy
+          }));
+
+          // Insert questions
+          const { error: questionsError } = await supabase
+            .from('question_bank')
+            .insert(questionsToInsert);
+
+          if (questionsError) throw questionsError;
+        }
+      }
+
+      setSubmitting(false);
+      if (onCreated) onCreated();
+      onClose();
+
+    } catch (err) {
+      console.error('Error creating form:', err);
+      setError(err.message || 'Failed to create form.');
+      setSubmitting(false);
+    }
   };
 
   const inputCls = "w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all";
@@ -178,6 +227,13 @@ export default function CreateFormModal({ existingForms = [], onClose, onCreated
             </button>
           </div>
 
+          {error && (
+            <div className="mb-2 p-2 bg-rose-50 border border-rose-200 rounded-xl text-rose-600 text-[11px] font-semibold flex items-center gap-2">
+              <AlertTriangle className="w-3.5 h-3.5" />
+              {error}
+            </div>
+          )}
+
           <div className="flex items-center gap-2 mt-4 overflow-x-auto pb-1">
             <div className="flex items-center gap-2 shrink-0">
               <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all shrink-0 ${step >= 0 ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-400'}`}>
@@ -202,7 +258,6 @@ export default function CreateFormModal({ existingForms = [], onClose, onCreated
         </div>
 
         <form onSubmit={handleSubmit} className="overflow-y-auto px-6 py-5 flex-1">
-
           {onFormDetails && (
             <div className="space-y-5">
               <div className="flex items-center gap-2 mb-1">

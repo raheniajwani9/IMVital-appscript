@@ -1,31 +1,32 @@
 import React, { useState } from 'react';
 import { Loader2, AlertTriangle, X } from 'lucide-react';
+import { supabase } from '../supabaseClient'; // Import Supabase client
 
 export default function DeleteScheduleModal({ schedule, onClose, onDeleted }) {
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!schedule?.schedule_id) return;
     setSubmitting(true);
+    setError('');
 
-    if (typeof google !== 'undefined' && google.script) {
-      google.script.run
-        .withSuccessHandler(() => {
-          setSubmitting(false);
-          if (onDeleted) onDeleted();
-          onClose();
-        })
-        .withFailureHandler((err) => {
-          console.error('Error deleting schedule:', err);
-          setSubmitting(false);
-        })
-        .apiDeleteSchedule(schedule.schedule_id);
-    } else {
-      setTimeout(() => {
-        setSubmitting(false);
-        if (onDeleted) onDeleted();
-        onClose();
-      }, 500);
+    try {
+      const { error: deleteError } = await supabase
+        .from('schedules')
+        .delete()
+        .eq('schedule_id', schedule.schedule_id);
+
+      if (deleteError) throw deleteError;
+
+      setSubmitting(false);
+      if (onDeleted) onDeleted();
+      onClose();
+
+    } catch (err) {
+      console.error('Error deleting schedule:', err);
+      setError(err.message || 'Failed to delete schedule.');
+      setSubmitting(false);
     }
   };
 
@@ -50,11 +51,18 @@ export default function DeleteScheduleModal({ schedule, onClose, onDeleted }) {
           </p>
         </div>
 
+        {error && (
+          <div className="text-[11px] font-bold text-rose-600">
+            {error}
+          </div>
+        )}
+
         <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-100"
+            disabled={submitting}
+            className="px-4 py-2 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-100 disabled:opacity-50"
           >
             Cancel
           </button>
@@ -62,7 +70,7 @@ export default function DeleteScheduleModal({ schedule, onClose, onDeleted }) {
             type="button"
             onClick={handleDelete}
             disabled={submitting}
-            className="px-4 py-2 rounded-xl text-xs font-bold bg-rose-600 text-white hover:bg-rose-700 flex items-center gap-2 shadow-md shadow-rose-500/20"
+            className="px-4 py-2 rounded-xl text-xs font-bold bg-rose-600 text-white hover:bg-rose-700 flex items-center gap-2 shadow-md shadow-rose-500/20 disabled:opacity-50"
           >
             {submitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
             <span>Delete</span>

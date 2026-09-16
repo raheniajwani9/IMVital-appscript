@@ -9,8 +9,7 @@ import {
 } from '../components/Charts';
 import { computeAdminAnalytics, distinctValues } from '../utils/adminAnalytics';
 
-/** Rolling window the dashboard reports on. Set to null for all-time. */
-const WINDOW_DAYS = 30;
+const WINDOW_DAYS = null;
 
 const shortDate = (v) =>
   v ? new Date(v).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—';
@@ -32,47 +31,123 @@ function Select({ value, onChange, options, placeholder }) {
       className="text-xs font-bold text-slate-600 bg-slate-100 border-0 rounded-xl px-3 py-2.5 cursor-pointer focus:ring-2 focus:ring-blue-500 outline-none"
     >
       <option value="">{placeholder}</option>
-      {options.map((o) => <option key={o} value={o}>{o}</option>)}
+      {options.map((o) => (
+        <option key={typeof o === 'object' ? o.value : o} value={typeof o === 'object' ? o.value : o}>
+          {typeof o === 'object' ? o.label : o}
+        </option>
+      ))}
     </select>
   );
 }
 
-export default function AdminDashboardView({ data, loading, onRefreshData }) {
+export default function AdminDashboardView({ data = {}, loading, onRefreshData }) {
   const [cluster, setCluster] = useState('');
   const [template, setTemplate] = useState('');
+  const [auditor, setAuditor] = useState('');
 
-  const clusterOptions = useMemo(
-    () => distinctValues([...(data.locations || []), ...(data.audits || [])], 'cluster'),
-    [data.locations, data.audits]
-  );
+  // 1. BULLETPROOF CLUSTER EXTRACTION
+  const clusterOptions = useMemo(() => {
+    const set = new Set();
+    const sources = [
+      ...(data.locations || []),
+      ...(data.audits || []),
+      ...(data.schedules || [])
+    ];
 
+    sources.forEach((item) => {
+      const val = item.cluster || item.Cluster || item.cluster_name || item.home_cluster
+        || item.location_cluster || item.region || item.area;
+      if (val && String(val).trim()) {
+        set.add(String(val).trim());
+      }
+    });
+
+    return Array.from(set).sort();
+  }, [data.locations, data.audits, data.schedules]);
+
+  // 2. TEMPLATE OPTIONS
   const templateOptions = useMemo(
     () => distinctValues([...(data.templates || []), ...(data.audits || [])], 'template_name'),
     [data.templates, data.audits]
   );
 
+  // 3. AUDITORS OPTIONS
+  const auditorOptions = useMemo(() => {
+    const list = [];
+    const seen = new Set();
+
+    // From Users table
+    (data.users || []).forEach((u) => {
+      const role = String(u.role || '').toLowerCase();
+      if (role === 'auditor' || role === 'user') {
+        const name = u.full_name || u.name || u.email;
+        const email = u.email;
+        if (email && !seen.has(email.toLowerCase())) {
+          seen.add(email.toLowerCase());
+          list.push({ label: name ? `${name} (${email})` : email, value: email });
+        }
+      }
+    });
+
+    // Fallback: From existing Audits table
+    (data.audits || []).forEach((a) => {
+      const email = a.auditor_email || a.auditor_id;
+      const name = a.auditor_name || email;
+      if (email && !seen.has(String(email).toLowerCase())) {
+        seen.add(String(email).toLowerCase());
+        list.push({ label: name ? `${name} (${email})` : email, value: email });
+      }
+    });
+
+    return list;
+  }, [data.users, data.audits]);
+
   const a = useMemo(
-    () => computeAdminAnalytics(data, { days: WINDOW_DAYS, cluster, template }),
-    [data, cluster, template]
+    () => computeAdminAnalytics(data, { days: WINDOW_DAYS, cluster, template, auditor }),
+    [data, cluster, template, auditor]
   );
 
   const k = a.kpis;
 
+  const windowLabel = WINDOW_DAYS ? `Last ${WINDOW_DAYS} days` : 'All time';
+
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 font-sans text-slate-800">
       {/* Header + filters */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Program Dashboard</h1>
           <p className="text-xs font-semibold text-slate-400 mt-1">
-            Last {WINDOW_DAYS} days · {k.submittedCount} submitted audits · {k.totalPods} PODs in scope
             {cluster && ` · ${cluster}`}
+            {template && ` · ${template}`}
+            {auditor && ` · Auditor: ${auditor}`}
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <Select value={cluster} onChange={setCluster} options={clusterOptions} placeholder="All clusters" />
-          <Select value={template} onChange={setTemplate} options={templateOptions} placeholder="All forms" />
+          {/* Cluster Filter */}
+          <Select
+            value={cluster}
+            onChange={setCluster}
+            options={clusterOptions}
+            placeholder="All clusters"
+          />
+
+          {/* Form Filter */}
+          <Select
+            value={template}
+            onChange={setTemplate}
+            options={templateOptions}
+            placeholder="All forms"
+          />
+
+          {/* Auditor Filter */}
+          <Select
+            value={auditor}
+            onChange={setAuditor}
+            options={auditorOptions}
+            placeholder="All Auditors"
+          />
 
           <button
             onClick={() => onRefreshData && onRefreshData()}

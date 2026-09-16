@@ -1,31 +1,36 @@
 import React, { useState } from 'react';
 import { Loader2, X, Trash2, AlertTriangle, FileText } from 'lucide-react';
+import { supabase } from '../supabaseClient'; // Import Supabase client
 
 export default function DeleteFormModal({ form, onClose, onDeleted }) {
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+  
   const formId = form?.template_id || form?.template_code;
   const formName = form?.template_name || 'this form';
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     setSubmitting(true);
-    if (typeof google !== 'undefined' && google.script) {
-      google.script.run
-        .withSuccessHandler(() => {
-          setSubmitting(false);
-          if (onDeleted) onDeleted();
-          onClose();
-        })
-        .withFailureHandler((err) => {
-          console.error('Error deleting form:', err);
-          setSubmitting(false);
-        })
-        .apiDeleteTemplate(formId);
-    } else {
-      setTimeout(() => {
-        setSubmitting(false);
-        if (onDeleted) onDeleted();
-        onClose();
-      }, 500);
+    setError('');
+
+    try {
+      // 1. Delete from templates table. 
+      // Assuming 'ON DELETE CASCADE' is set up for sections/questions in Supabase
+      const { error: deleteError } = await supabase
+        .from('templates')
+        .delete()
+        .eq('template_id', formId);
+
+      if (deleteError) throw deleteError;
+
+      setSubmitting(false);
+      if (onDeleted) onDeleted();
+      onClose();
+
+    } catch (err) {
+      console.error('Error deleting form:', err);
+      setError(err.message || 'Failed to delete the form.');
+      setSubmitting(false);
     }
   };
 
@@ -60,13 +65,20 @@ export default function DeleteFormModal({ form, onClose, onDeleted }) {
               <div className="text-[10px] text-slate-400">ID: {formId}</div>
             </div>
           </div>
+
+          {error && (
+            <div className="text-[11px] font-bold text-rose-600">
+              {error}
+            </div>
+          )}
         </div>
 
         <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-slate-100">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-100 transition-colors"
+            disabled={submitting}
+            className="px-4 py-2 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-100 transition-colors disabled:opacity-50"
           >
             Cancel
           </button>

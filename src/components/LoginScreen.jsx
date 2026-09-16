@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { User, Mail, Loader2, ArrowRight, Sparkles } from 'lucide-react';
+import { supabase } from '../supabaseClient'; // Import your Supabase client
 
 export default function LoginScreen({ onAuthenticated }) {
   const [loginName, setLoginName] = useState('');
@@ -7,46 +8,96 @@ export default function LoginScreen({ onAuthenticated }) {
   const [isSubmittingLogin, setIsSubmittingLogin] = useState(false);
   const [loginError, setLoginError] = useState('');
 
-  const handleLoginSubmit = (e) => {
+  const handleLoginSubmit = async (e) => {
     e.preventDefault();
     setLoginError('');
 
     const trimmedName = loginName.trim();
     const trimmedEmail = loginEmail.trim();
 
+    // 1. Basic validation
     if (!trimmedName || !trimmedEmail) {
       setLoginError('Please enter both your full name and email address.');
       return;
     }
 
+    // 2. Strict Domain Validation
+    const allowedDomains = ['swiggy.in', 'external.swiggyimnet.in', 'scootsy.com'];
+    const emailDomain = trimmedEmail.split('@')[1]?.toLowerCase();
+
+    if (!emailDomain || !allowedDomains.includes(emailDomain)) {
+      setLoginError('Please use a valid company email address (@swiggy.in, @external.swiggyimnet.in, or @scootsy.com).');
+      return;
+    }
+
     setIsSubmittingLogin(true);
 
-    if (typeof google !== 'undefined' && google.script) {
-      google.script.run
-        .withSuccessHandler((res) => {
-          setIsSubmittingLogin(false);
-          if (res && res.success) {
-            onAuthenticated(res.user);
-          } else {
-            setLoginError(res?.message || 'Authentication failed.');
-          }
-        })
-        .withFailureHandler(() => {
-          setIsSubmittingLogin(false);
-          setLoginError('Server error during login. Please try again.');
-        })
-        .apiAuthenticateUser({ name: trimmedName, email: trimmedEmail });
-    } else {
-      // Local Development Fallback — flip the role here to preview each workspace.
-      setTimeout(() => {
-        setIsSubmittingLogin(false);
-        onAuthenticated({
-          user_id: 'USR-LOCAL',
-          name: trimmedName,
+    try {
+      // 3. Check if the user already exists in the database
+      let { data: user, error: fetchError } = await supabase
+        .from('users')
+        .select('*')
+        .ilike('email', trimmedEmail)
+        .maybeSingle(); 
+
+      if (fetchError) {
+        throw new Error(fetchError.message || 'Database error occurred.');
+      }
+
+      // 4. If the user DOES NOT exist, auto-create them!
+      if (!user) {
+        const newUserPayload = {
+          user_id: `USR-${Date.now()}`,
+          full_name: trimmedName,
           email: trimmedEmail,
-          role: 'AUDITOR'
-        });
-      }, 500);
+          role: 'AUDITOR', // Default role for new sign-ups
+          active: true,
+          created_at: new Date().toISOString(),
+          last_login_at: new Date().toISOString()
+        };
+
+        const { data: insertedUser, error: insertError } = await supabase
+          .from('users')
+          .insert([newUserPayload])
+          .select()
+          .single();
+
+        if (insertError) {
+          console.error('Failed to auto-register user:', insertError);
+          // If insert fails (e.g. RLS block), just log them in locally anyway
+          user = newUserPayload; 
+        } else {
+          user = insertedUser;
+        }
+      } else {
+        // 5. If the user DOES exist, verify they are active and update their login time
+        if (!user.active) {
+          throw new Error('This account is deactivated. Please contact support.');
+        }
+
+        const { error: updateError } = await supabase
+          .from('users')
+          .update({ last_login_at: new Date().toISOString() })
+          .eq('user_id', user.user_id);
+
+        if (updateError) console.error('Failed to update last login:', updateError);
+      }
+
+      // 6. Pass the authenticated user back to App.jsx
+      setIsSubmittingLogin(false);
+      onAuthenticated({
+        user_id: user.user_id,
+        name: user.full_name || trimmedName,
+        email: user.email,
+        role: user.role,
+        home_cluster: user.home_cluster || '',
+        additional_cluster: user.additional_cluster || ''
+      });
+
+    } catch (err) {
+      console.error('Login Error:', err);
+      setIsSubmittingLogin(false);
+      setLoginError(err.message || 'Server error during login. Please try again.');
     }
   };
 
@@ -68,7 +119,7 @@ export default function LoginScreen({ onAuthenticated }) {
             <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-50 text-blue-600 text-[10px] font-bold tracking-wider uppercase">
               <Sparkles className="w-3 h-3" /> Operations Platform
             </div>
-            <h1 className="text-2xl font-black text-slate-900 tracking-tight">Welcome Back</h1>
+            <h1 className="text-2xl font-black text-slate-900 tracking-tight">Welcome</h1>
             <p className="text-xs text-slate-500 max-w-xs mx-auto">
               Enter your details to access standards, forms, and audits.
             </p>

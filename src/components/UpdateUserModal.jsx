@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Loader2, X, Mail, User, Shield } from 'lucide-react';
 import { ROLE_OPTIONS, normalizeRole } from '../constants/Roles';
 import ClusterFields from './ClusterFields';
+import { supabase } from '../supabaseClient'; // 1. Import your Supabase client
 
 export default function UpdateUserModal({ user, locations = [], onClose, onUpdated }) {
   const [formData, setFormData] = useState({
@@ -19,7 +20,7 @@ export default function UpdateUserModal({ user, locations = [], onClose, onUpdat
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault();
 
     if (!formData.home_cluster) {
@@ -30,25 +31,35 @@ export default function UpdateUserModal({ user, locations = [], onClose, onUpdat
     setError('');
     setSubmitting(true);
 
-    if (typeof google !== 'undefined' && google.script) {
-      google.script.run
-        .withSuccessHandler(() => {
-          setSubmitting(false);
-          onUpdated?.();
-          onClose();
+    try {
+      // 2. Update the existing user record in Supabase
+      const { error: updateError } = await supabase
+        .from('users')
+        .update({
+          full_name: formData.full_name,
+          email: formData.email,
+          role: formData.role,
+          home_cluster: formData.home_cluster,
+          additional_cluster: formData.additional_cluster,
+          updated_at: new Date().toISOString()
         })
-        .withFailureHandler((err) => {
-          console.error('Error updating user:', err);
-          setError(err?.message || 'Could not update user.');
-          setSubmitting(false);
-        })
-        .apiUpdateUser(formData);
-    } else {
-      setTimeout(() => {
-        setSubmitting(false);
-        onUpdated?.();
-        onClose();
-      }, 500);
+        .eq('user_id', formData.user_id);
+
+      if (updateError) throw updateError;
+
+      setSubmitting(false);
+      if (onUpdated) onUpdated();
+      onClose();
+
+    } catch (err) {
+      console.error('Error updating user:', err);
+      // Handle unique email constraint error if necessary
+      if (err.code === '23505') {
+        setError('A user with this email address already exists.');
+      } else {
+        setError(err.message || 'Could not update user. Please try again.');
+      }
+      setSubmitting(false);
     }
   };
 
@@ -63,7 +74,7 @@ export default function UpdateUserModal({ user, locations = [], onClose, onUpdat
             <h2 className="text-lg font-black text-slate-900">Edit User &amp; Role</h2>
           </div>
 
-          <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-600">
+          <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer">
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -77,7 +88,7 @@ export default function UpdateUserModal({ user, locations = [], onClose, onUpdat
               <input
                 type="text"
                 required
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 pl-8 font-semibold text-slate-800"
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 pl-8 font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                 value={formData.full_name}
                 onChange={(event) => setFormData({ ...formData, full_name: event.target.value })}
               />
@@ -93,7 +104,7 @@ export default function UpdateUserModal({ user, locations = [], onClose, onUpdat
               <input
                 type="email"
                 required
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 pl-8 font-semibold text-slate-800"
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 pl-8 font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                 value={formData.email}
                 onChange={(event) => setFormData({ ...formData, email: event.target.value })}
               />
@@ -108,7 +119,7 @@ export default function UpdateUserModal({ user, locations = [], onClose, onUpdat
             <div className="relative">
               <select
                 required
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 pl-8 font-semibold text-slate-800"
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 pl-8 font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                 value={formData.role}
                 onChange={(event) => setFormData({ ...formData, role: event.target.value })}
               >
@@ -137,7 +148,8 @@ export default function UpdateUserModal({ user, locations = [], onClose, onUpdat
             <button
               type="button"
               onClick={onClose}
-              className="rounded-xl px-4 py-2 text-xs font-bold text-slate-500 hover:bg-slate-100"
+              disabled={submitting}
+              className="rounded-xl px-4 py-2 text-xs font-bold text-slate-500 hover:bg-slate-100 disabled:opacity-50 transition-colors cursor-pointer"
             >
               Cancel
             </button>
@@ -145,7 +157,7 @@ export default function UpdateUserModal({ user, locations = [], onClose, onUpdat
             <button
               type="submit"
               disabled={submitting}
-              className="flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2 text-xs font-bold text-white shadow-md hover:bg-blue-700 disabled:opacity-50"
+              className="flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2 text-xs font-bold text-white shadow-md hover:bg-blue-700 disabled:opacity-50 transition-colors cursor-pointer"
             >
               {submitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               <span>Save Changes</span>

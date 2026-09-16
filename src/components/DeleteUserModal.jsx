@@ -1,48 +1,38 @@
 import React, { useState } from 'react';
 import { Loader2, AlertTriangle, X } from 'lucide-react';
+import { supabase } from '../supabaseClient'; // Import Supabase client
 
 export default function DeleteUserModal({ user, onClose, onDeleted }) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
 
-  const handleDelete = (event) => {
+  const handleDelete = async (event) => {
     event.preventDefault();
     setSubmitting(true);
     setError(null);
 
-    const payload = {
-      user_id: user?.user_id || '',
-      email: user?.email || '',
-      full_name: user?.full_name || user?.name || ''
-    };
+    if (!user?.user_id) {
+      setError("User ID is missing.");
+      setSubmitting(false);
+      return;
+    }
 
-    if (typeof google !== 'undefined' && google.script) {
-      google.script.run
-        .withSuccessHandler((response) => {
-          setSubmitting(false);
+    try {
+      const { error: deleteError } = await supabase
+        .from('users')
+        .delete()
+        .eq('user_id', user.user_id);
 
-          if (response && response.success === false) {
-            setError(response.message || 'Failed to delete user.');
-            return;
-          }
+      if (deleteError) throw deleteError;
 
-          onDeleted?.();
-          onClose();
-        })
-        .withFailureHandler((err) => {
-          console.error('Error deleting user:', err);
-          setSubmitting(false);
-          setError(
-            err?.message || 'Server error occurred while deleting the user.'
-          );
-        })
-        .apiDeleteUser(payload);
-    } else {
-      setTimeout(() => {
-        setSubmitting(false);
-        onDeleted?.();
-        onClose();
-      }, 500);
+      setSubmitting(false);
+      onDeleted?.();
+      onClose();
+
+    } catch (err) {
+      console.error('Error deleting user:', err);
+      setError(err.message || 'Server error occurred while deleting the user.');
+      setSubmitting(false);
     }
   };
 

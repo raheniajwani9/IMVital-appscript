@@ -1,17 +1,19 @@
 import React, { useState, useMemo } from 'react';
-import { Tag, Plus, Pencil, Trash2, Search } from 'lucide-react';
+import { Tag, Plus, Pencil, Trash2, Search, Loader2 } from 'lucide-react';
 import CreateCategoryModal from '../components/createCategoryModal';
+import { supabase } from '../supabaseClient'; // Import Supabase client
 
 export default function CategoriesView({ questionBank = [], onRefreshData }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Group categories and compute associated template/question counts
   const categoriesList = useMemo(() => {
     const defaultCategories = ['Operations', 'Food Safety & Hygiene', 'Cold Chain Compliance', 'Safety & Maintenance'];
     
-    // Extract non-empty categories used in the question bank
+    // Extract non-empty categories used in the question bank/templates
     const usedCategories = questionBank
       .map((item) => item.template_category)
       .filter(Boolean);
@@ -47,16 +49,23 @@ export default function CategoriesView({ questionBank = [], onRefreshData }) {
     cat.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const handleDeleteCategory = (catName) => {
-    if (window.confirm(`Are you sure you want to delete the "${catName}" category?`)) {
-      if (typeof google !== 'undefined' && google.script) {
-        google.script.run
-          .withSuccessHandler(() => {
-            if (onRefreshData) onRefreshData();
-          })
-          .apiDeleteCategory(catName);
-      } else {
+  const handleDeleteCategory = async (catName) => {
+    if (window.confirm(`Are you sure you want to delete the "${catName}" category? Associated templates will be marked as "Uncategorized".`)) {
+      setIsDeleting(true);
+      try {
+        // Bulk update templates that used this category to a null/uncategorized state
+        const { error } = await supabase
+          .from('templates')
+          .update({ template_category: 'Uncategorized' })
+          .eq('template_category', catName);
+
+        if (error) throw error;
+        
         if (onRefreshData) onRefreshData();
+      } catch (err) {
+        console.error('Error deleting category:', err);
+      } finally {
+        setIsDeleting(false);
       }
     }
   };
@@ -156,7 +165,8 @@ export default function CategoriesView({ questionBank = [], onRefreshData }) {
                         </button>
                         <button
                           onClick={() => handleDeleteCategory(cat.name)}
-                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                          disabled={isDeleting}
+                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors disabled:opacity-50"
                           title="Delete Category"
                         >
                           <Trash2 className="w-4 h-4" />
@@ -197,21 +207,28 @@ export default function CategoriesView({ questionBank = [], onRefreshData }) {
 
 function EditCategoryDialog({ category, onClose, onUpdated }) {
   const [newName, setNewName] = useState(category.name);
+  const [submitting, setSubmitting] = useState(false);
 
-  const handleUpdate = (e) => {
+  const handleUpdate = async (e) => {
     e.preventDefault();
     if (!newName.trim()) return;
 
-    if (typeof google !== 'undefined' && google.script) {
-      google.script.run
-        .withSuccessHandler(() => {
-          if (onUpdated) onUpdated();
-          onClose();
-        })
-        .apiUpdateCategory({ old_name: category.name, new_name: newName.trim() });
-    } else {
+    setSubmitting(true);
+    try {
+      // Bulk update the category name in the templates table
+      const { error } = await supabase
+        .from('templates')
+        .update({ template_category: newName.trim() })
+        .eq('template_category', category.name);
+
+      if (error) throw error;
+
       if (onUpdated) onUpdated();
       onClose();
+    } catch (err) {
+      console.error('Error updating category:', err);
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -227,7 +244,7 @@ function EditCategoryDialog({ category, onClose, onUpdated }) {
             <input
               required
               type="text"
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs font-semibold focus:outline-none"
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20"
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
             />
@@ -236,15 +253,18 @@ function EditCategoryDialog({ category, onClose, onUpdated }) {
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-100"
+              disabled={submitting}
+              className="px-4 py-2 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-100 disabled:opacity-50"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="px-4 py-2 rounded-xl text-xs font-bold bg-blue-600 text-white hover:bg-blue-700"
+              disabled={submitting}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
             >
-              Update Category
+              {submitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+              <span>Update Category</span>
             </button>
           </div>
         </form>

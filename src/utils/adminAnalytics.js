@@ -19,10 +19,28 @@ export function toDate(v) {
 const SUBMITTED_STATUSES = ['SUBMITTED', 'APPROVED', 'COMPLETED', 'REVIEWED'];
 const CLOSED_ACTIONS     = ['CLOSED', 'RESOLVED', 'DONE', 'COMPLETED', 'VERIFIED'];
 
-const auditDate      = (a) => toDate(a.submitted_at) || toDate(a.created_at) || toDate(a.scheduled_date);
-const criticalCount  = (a) => num(a.critical_failures) || num(a.critical_feature);
+const auditDate      = (a) => toDate(a.submitted_at) || toDate(a.created_at) || toDate(a.scheduled_date) || toDate(a.audit_date);
+const criticalCount  = (a) => num(a.critical_failures) || num(a.critical_feature) || num(a.critical_count);
 const isSubmitted    = (a) => SUBMITTED_STATUSES.indexOf(token(a.status)) !== -1;
 const isClosedAction = (x) => CLOSED_ACTIONS.indexOf(token(x.status)) !== -1;
+
+/* Helper: extract cluster from any object across common field name variants */
+const extractCluster = (row) =>
+  norm(row?.cluster ?? row?.Cluster ?? row?.cluster_name ?? row?.home_cluster ??
+        row?.location_cluster ?? row?.location_cluster_name ?? row?.region ??
+        row?.area ?? row?.zone ?? row?.territory);
+
+/* Helper: extract template name from any object */
+const extractTemplate = (row) =>
+  norm(row?.template_name ?? row?.template_id ?? row?.form_name ?? row?.form_id);
+
+/* Helper: extract auditor email from audit row */
+const extractAuditorEmail = (a) =>
+  key(a?.auditor_email ?? a?.auditor_id ?? a?.assigned_auditor_email ?? a?.assigned_auditor);
+
+/* Helper: extract location identifier — handles pod_id, "Location ID", and "Store Name" */
+const extractLocationId = (row) =>
+  key(row?.location_id ?? row?.pod_id ?? row?.['Location ID'] ?? row?.['Store Name'] ?? row?.locationID ?? row?.LocationID);
 
 export const STATUS_COLORS = {
   SUBMITTED: '#10b981', IN_PROGRESS: '#f59e0b', APPROVED: '#3b82f6',
@@ -131,12 +149,13 @@ function buildTrend(audits, since, now) {
 
 /**
  * Everything the admin dashboard renders, derived from the getProgramAdminData payload.
- * filters: { days: number|null, cluster: string, template: string }
+ * filters: { days: number|null, cluster: string, template: string, auditor: string }
  */
 export function computeAdminAnalytics(data = {}, filters = {}) {
-  const days = filters.days === undefined ? 30 : filters.days;
-  const wantCluster  = key(filters.cluster);
-  const wantTemplate = key(filters.template);
+  const days = filters.days === undefined ? null : filters.days;
+  const wantCluster   = key(filters.cluster);
+  const wantTemplate  = key(filters.template);
+  const wantAuditor   = key(filters.auditor);
 
   const now = new Date();
   const since = days ? new Date(now.getTime() - days * DAY) : null;
@@ -149,12 +168,56 @@ export function computeAdminAnalytics(data = {}, filters = {}) {
   const locations   = data.locations || [];
   const activityLog = data.activityLog || [];
 
+  /* ------------------- location → cluster lookup ------------------- */
+  // FIX: Key by pod_id, "Location ID", AND "Store Name" because audits
+  // store the store name (e.g. "Vagator") as location_id, not the numeric pod_id
+  const locClusterMap = new Map();
+  locations.forEach((l) => {
+    const cl = extractCluster(l);
+    if (!cl) return;
+    if (l.pod_id)             locClusterMap.set(key(l.pod_id), cl);
+    if (l['Location ID'])     locClusterMap.set(key(l['Location ID']), cl);
+    if (l['Store Name'])      locClusterMap.set(key(l['Store Name']), cl);
+    if (l.location_id)        locClusterMap.set(key(l.location_id), cl);
+  });
+
+  // Build schedule_id → cluster map (schedules have no cluster, but enrich locClusterMap)
+  const scheduleClusterMap = new Map();
+  schedules.forEach((s) => {
+    const sid = norm(s.schedule_id);
+    const cl  = extractCluster(s);
+    if (sid && cl) scheduleClusterMap.set(sid, cl);
+    const lid = key(s.location_id);
+    if (lid && cl && !locClusterMap.has(lid)) locClusterMap.set(lid, cl);
+  });
+
+  // resolveCluster: 3 fallbacks — row → location → schedule
+  const resolveCluster = (a) => {
+    // 1. Direct from the audit row itself
+    const direct = extractCluster(a);
+    if (direct) return direct;
+
+    // 2. From location lookup via location_id / pod_id / "Store Name"
+    const lid = extractLocationId(a);
+    if (lid && lid !== 'all_locations' && locClusterMap.has(lid)) return locClusterMap.get(lid);
+
+    // 3. From schedule lookup via schedule_id
+    const sid = norm(a.schedule_id);
+    if (sid && scheduleClusterMap.has(sid)) return scheduleClusterMap.get(sid);
+
+    return '';
+  };
+
   /* ---------------------------- scope filters --------------------------- */
   const inScope = (row) => {
-    if (wantCluster && key(row.cluster) !== wantCluster) return false;
+    if (wantCluster && key(resolveCluster(row)) !== wantCluster) return false;
     if (wantTemplate) {
-      const t = key(row.template_name) || key(row.template_id);
+      const t = key(extractTemplate(row));
       if (t !== wantTemplate) return false;
+    }
+    if (wantAuditor) {
+      const aEmail = extractAuditorEmail(row);
+      if (aEmail !== wantAuditor) return false;
     }
     return true;
   };
@@ -234,9 +297,9 @@ export function computeAdminAnalytics(data = {}, filters = {}) {
   const decorateSchedule = (s) => ({
     schedule_id: s.schedule_id,
     template_name: s.template_name || s.template_id || '—',
-    location_id: s.location_id || s.pod_id || '—',
-    cluster: s.cluster || '—',
-    city: s.city || '—',
+    location_id: s.location_id || s.pod_id || s['Location ID'] || '—',
+    cluster: resolveCluster(s) || '—',
+    city: s.city || s.City || '—',
     auditor: s.assigned_auditor || s.assigned_auditor_email || 'Unassigned',
     priority: token(s.priority) || 'MEDIUM',
     due_date: s.due_date || s.next_run_date || '',
@@ -273,19 +336,56 @@ export function computeAdminAnalytics(data = {}, filters = {}) {
   );
 
   /* ------------------------------- coverage ----------------------------- */
-  const scopedLocations = locations.filter((l) => !wantCluster || key(l.cluster) === wantCluster);
-  const auditedPods = new Set(submitted.map((a) => key(a.location_id)).filter(Boolean));
+  const scopedLocations = locations.filter((l) => !wantCluster || key(extractCluster(l)) === wantCluster);
+  const auditedPods = new Set(submitted.map((a) => extractLocationId(a)).filter(Boolean));
 
   const uncoveredPods = scopedLocations
-    .filter((l) => !auditedPods.has(key(l.location_id)) && !auditedPods.has(key(l.pod_id)))
-    .map((l) => ({ pod: l.location_name || l.location_id, city: l.city, cluster: l.cluster }));
+    .filter((l) => {
+      const lid = extractLocationId(l);
+      return lid && !auditedPods.has(lid);
+    })
+    .map((l) => ({
+      pod: l['Store Name'] || l.pod_id || l['Location ID'] || '—',
+      city: l.city || l.City || '—',
+      cluster: extractCluster(l)
+    }));
 
-  const clustersWithAudits = new Set(submitted.map((a) => key(a.cluster)).filter(Boolean));
-  const uncoveredClusters = distinctValues(scopedLocations, 'cluster')
+  const clustersWithAudits = new Set(submitted.map((a) => key(resolveCluster(a))).filter(Boolean));
+  const uncoveredClusters = distinctValues(scopedLocations, 'cluster', 'Cluster', 'cluster_name', 'home_cluster', 'location_cluster')
     .filter((c) => !clustersWithAudits.has(key(c)));
 
   /* ------------------------------- auditors ----------------------------- */
-  const auditorRows = users.filter((u) => token(u.role) === 'AUDITOR');
+  const auditorMap = new Map();
+
+  users.forEach((u) => {
+    const role = token(u.role);
+    if (role === 'AUDITOR' || role === 'USER') {
+      const e = norm(u.email);
+      if (e && !auditorMap.has(key(e))) {
+        auditorMap.set(key(e), {
+          email: e,
+          name: u.full_name || u.name || e,
+          cluster: u.home_cluster || '—',
+          active: norm(u.active) === '' ? true : parseBool(u.active),
+          userId: u.user_id
+        });
+      }
+    }
+  });
+
+  submitted.forEach((a) => {
+    const e = norm(a.auditor_email || a.auditor_id);
+    if (e && !auditorMap.has(key(e))) {
+      auditorMap.set(key(e), {
+        email: e,
+        name: a.auditor_name || e,
+        cluster: resolveCluster(a) || '—',
+        active: true,
+        userId: null
+      });
+    }
+  });
+
   const pendingByAuditor = new Map();
   liveSchedules.forEach((s) => {
     if (submittedScheduleIds.has(String(s.schedule_id))) return;
@@ -293,20 +393,21 @@ export function computeAdminAnalytics(data = {}, filters = {}) {
     if (k) pendingByAuditor.set(k, (pendingByAuditor.get(k) || 0) + 1);
   });
 
-  const byAuditor = auditorRows.map((u) => {
-    const mine = submitted.filter((a) =>
-      key(a.auditor_email) === key(u.email) || String(a.auditor_id) === String(u.user_id)
-    );
+  const byAuditor = [...auditorMap.values()].map((u) => {
+    const mine = submitted.filter((a) => {
+      const aEmail = extractAuditorEmail(a);
+      return aEmail === key(u.email) || String(a.auditor_id) === String(u.userId);
+    });
     const turnarounds = mine.map((a) => {
       const s = toDate(a.started_at), e = toDate(a.submitted_at);
       return s && e && e >= s ? (e - s) / 3600000 : null;
     }).filter((v) => v !== null);
 
     return {
-      name: u.full_name || u.email,
+      name: u.name,
       email: u.email,
-      cluster: u.home_cluster || '—',
-      active: norm(u.active) === '' ? true : parseBool(u.active),
+      cluster: u.cluster,
+      active: u.active,
       auditCount: mine.length,
       avgScore: mine.length
         ? round1(mine.reduce((s, a) => s + num(a.score_percent), 0) / mine.length)
@@ -317,7 +418,7 @@ export function computeAdminAnalytics(data = {}, filters = {}) {
         ? round1(turnarounds.reduce((s, v) => s + v, 0) / turnarounds.length)
         : 0,
       pending: pendingByAuditor.get(key(u.email)) || 0,
-      lastLogin: u.last_login_at || ''
+      lastLogin: u.lastLogin || ''
     };
   }).sort((a, b) => b.auditCount - a.auditCount);
 
@@ -394,10 +495,10 @@ export function computeAdminAnalytics(data = {}, filters = {}) {
     ratingMap.set(k, (ratingMap.get(k) || 0) + 1);
   });
 
-  const byCluster  = aggregate(submitted, (a) => a.cluster, 'cluster');
-  const byCity     = aggregate(submitted, (a) => a.city, 'city');
-  const byTemplate = aggregate(submitted, (a) => a.template_name || a.template_id, 'template');
-  const byPod      = aggregate(submitted, (a) => a.location_id, 'pod');
+  const byCluster  = aggregate(submitted, (a) => resolveCluster(a), 'cluster');
+  const byCity     = aggregate(submitted, (a) => a.city || a.City, 'city');
+  const byTemplate = aggregate(submitted, (a) => extractTemplate(a), 'template');
+  const byPod      = aggregate(submitted, (a) => extractLocationId(a), 'pod');
 
   const criticalAudits = submitted
     .filter((a) => criticalCount(a) > 0)
@@ -406,9 +507,9 @@ export function computeAdminAnalytics(data = {}, filters = {}) {
     .slice(0, 10)
     .map((a) => ({
       audit_id: a.audit_id,
-      template_name: a.template_name || '—',
-      location_id: a.location_id || '—',
-      cluster: a.cluster || '—',
+      template_name: extractTemplate(a) || '—',
+      location_id: a.location_id || a.pod_id || a['Location ID'] || a['Store Name'] || '—',
+      cluster: resolveCluster(a) || '—',
       auditor: a.auditor_name || a.auditor_email || '—',
       score_percent: num(a.score_percent),
       critical: criticalCount(a),
@@ -429,7 +530,7 @@ export function computeAdminAnalytics(data = {}, filters = {}) {
     }));
 
   return {
-    filters: { days, cluster: filters.cluster || '', template: filters.template || '' },
+    filters: { days, cluster: filters.cluster || '', template: filters.template || '', auditor: filters.auditor || '' },
 
     kpis: {
       totalAudits: audits.length,

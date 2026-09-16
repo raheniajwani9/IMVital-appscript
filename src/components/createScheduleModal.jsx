@@ -3,6 +3,7 @@ import { Loader2, X, UserCheck, AlertTriangle } from 'lucide-react';
 import DatePicker from './DatePicker';
 import PodScopePicker from './PodScopePicker';
 import { userClusters, podsForScope, podKey, podLabel } from '../constants/clusters';
+import { supabase } from '../supabaseClient';
 
 const FREQUENCIES = ['DAILY', 'WEEKLY', 'MONTHLY', 'QUARTERLY', 'ONE_TIME'];
 const PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
@@ -111,7 +112,7 @@ export default function CreateScheduleModal({
     setScope({ ...EMPTY_SCOPE, clusters: userClusters(selected) });
   };
 
-  const handleSubmit = (event) => {
+ const handleSubmit = async (event) => {
     event.preventDefault();
 
     if (!formData.assigned_auditor_email) {
@@ -126,37 +127,59 @@ export default function CreateScheduleModal({
     setError('');
     setSubmitting(true);
 
-    const payload = {
-      ...formData,
-      next_run_date: formData.start_date,
-      created_at: new Date().toISOString(),
-      pods: selectedPods.map((pod) => ({
-        pod_id: pod.pod_id || '',
+    try {
+      // 1. Prepare payload for Supabase insertion (array of schedules)
+      const schedulesToInsert = selectedPods.map((pod, index) => ({
+        schedule_id: `SCH-${Date.now()}-${index}`,
+        template_id: formData.template_id,
+        // REMOVED template_name FROM HERE
         location_id: pod.location_id || podLabel(pod),
+        frequency: formData.frequency,
+        run_date: formData.start_date,
+        assigned_auditor: formData.assigned_auditor,
+        assigned_auditor_email: formData.assigned_auditor_email,
+        due_date: formData.due_date,
+        priority: formData.priority,
         city: pod.city || '',
-        cluster: pod.cluster || ''
-      }))
-    };
+        created_at: new Date().toISOString()
+      }));
 
-    if (typeof google !== 'undefined' && google.script) {
-      google.script.run
-        .withSuccessHandler(() => {
-          setSubmitting(false);
-          onCreated?.();
-          onClose();
-        })
-        .withFailureHandler((err) => {
-          console.error('Error creating schedules in Apps Script:', err);
-          setError(err?.message || 'Apps Script rejected the request.');
-          setSubmitting(false);
-        })
-        .apiCreateSchedules(payload);
-    } else {
-      setTimeout(() => {
-        setSubmitting(false);
-        onCreated?.();
-        onClose();
-      }, 500);
+      // 2. Insert into Supabase
+      const { error: insertError } = await supabase
+        .from('schedules')
+        .insert(schedulesToInsert);
+
+      if (insertError) throw insertError;
+
+      // 3. DISPATCH EMAIL NOTIFICATION
+      try {
+        await fetch('/api/send-email', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            to: formData.assigned_auditor_email,
+            auditorName: formData.assigned_auditor,
+            templateName: formData.template_name, // STILL NEEDED HERE FOR THE EMAIL
+            auditCount: selectedPods.length,
+            dueDate: formData.due_date,
+            priority: formData.priority,
+            locations: selectedPods.map(pod => pod.location_id || podLabel(pod))
+          })
+        });
+      } catch (emailErr) {
+        console.error('Database saved, but failed to dispatch email:', emailErr);
+      }
+
+      setSubmitting(false);
+      onCreated?.();
+      onClose();
+
+    } catch (err) {
+      console.error('Error creating schedules:', err);
+      setError(err.message || 'Failed to create schedules.');
+      setSubmitting(false);
     }
   };
 
@@ -307,8 +330,7 @@ export default function CreateScheduleModal({
             >
               {submitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               <span>
-                Save {selectedPods.length > 1 ? `${selectedPods.length} Schedules` : 'Schedule'} &amp;
-                Dispatch Email
+                Save & Notify
               </span>
             </button>
           </div>

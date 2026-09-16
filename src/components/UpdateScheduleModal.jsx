@@ -3,6 +3,7 @@ import { Loader2, X, Mail, AlertTriangle } from 'lucide-react';
 import DatePicker from './DatePicker';
 import PodSelector from './PodSelector';
 import { auditorsForCluster, userClusters } from '../constants/clusters';
+import { supabase } from '../supabaseClient'; 
 
 const FREQUENCIES = ['DAILY', 'WEEKLY', 'MONTHLY', 'QUARTERLY', 'ONE_TIME'];
 const PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
@@ -51,6 +52,7 @@ export default function UpdateScheduleModal({
 
   const [ignoreClusterScope, setIgnoreClusterScope] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
 
   const scopedAuditors = useMemo(
     () => (formData.cluster ? auditorsForCluster(users, formData.cluster) : users),
@@ -95,30 +97,66 @@ export default function UpdateScheduleModal({
     }));
   };
 
-  const handleSubmit = (event) => {
+ const handleSubmit = async (event) => {
     event.preventDefault();
     setSubmitting(true);
+    setError('');
 
-    const payload = { ...formData, next_run_date: formData.start_date };
+    const payload = { 
+      template_id: formData.template_id,
+      // REMOVED template_name FROM HERE
+      location_id: formData.location_id,
+      city: formData.city,
+      frequency: formData.frequency,
+      assigned_auditor: formData.assigned_auditor,
+      assigned_auditor_email: formData.assigned_auditor_email,
+      run_date: formData.start_date,
+      due_date: formData.due_date,
+      priority: formData.priority,
+      status: formData.status
+    };
 
-    if (typeof google !== 'undefined' && google.script) {
-      google.script.run
-        .withSuccessHandler(() => {
-          setSubmitting(false);
-          onUpdated?.();
-          onClose();
-        })
-        .withFailureHandler((err) => {
-          console.error('Error updating schedule:', err);
-          setSubmitting(false);
-        })
-        .apiUpdateSchedule(payload);
-    } else {
-      setTimeout(() => {
-        setSubmitting(false);
-        onUpdated?.();
-        onClose();
-      }, 500);
+    try {
+      // 1. Update existing schedule in Supabase
+      const { error: updateError } = await supabase
+        .from('schedules')
+        .update(payload)
+        .eq('schedule_id', formData.schedule_id);
+
+      if (updateError) throw updateError;
+
+      // 2. DISPATCH EMAIL NOTIFICATION FOR UPDATE
+      if (formData.assigned_auditor_email) {
+        try {
+          await fetch('/api/send-email', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              to: formData.assigned_auditor_email,
+              auditorName: formData.assigned_auditor,
+              templateName: formData.template_name, // STILL NEEDED HERE FOR THE EMAIL
+              auditCount: 1, 
+              dueDate: formData.due_date,
+              priority: formData.priority,
+              locations: [formData.location_id],
+              isUpdate: true 
+            })
+          });
+        } catch (emailErr) {
+          console.error('Database updated, but failed to dispatch email:', emailErr);
+        }
+      }
+
+      setSubmitting(false);
+      if (onUpdated) onUpdated();
+      onClose();
+
+    } catch (err) {
+      console.error('Error updating schedule:', err);
+      setError(err.message || 'Failed to update schedule.');
+      setSubmitting(false);
     }
   };
 
@@ -137,6 +175,13 @@ export default function UpdateScheduleModal({
             <X className="h-5 w-5" />
           </button>
         </div>
+
+        {error && (
+          <div className="mt-4 p-2 bg-rose-50 border border-rose-200 rounded-xl text-rose-600 text-[11px] font-semibold flex items-center gap-2">
+            <AlertTriangle className="w-3.5 h-3.5" />
+            {error}
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="mt-4 space-y-4 text-xs">
           <div>
@@ -300,10 +345,10 @@ export default function UpdateScheduleModal({
             <button
               type="submit"
               disabled={submitting}
-              className="flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2 text-xs font-bold text-white shadow-md hover:bg-blue-700"
+              className="flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2 text-xs font-bold text-white shadow-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {submitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-              <span>Update Schedule</span>
+              <span>Update & Notify</span>
             </button>
           </div>
         </form>

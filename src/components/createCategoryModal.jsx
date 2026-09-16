@@ -10,30 +10,14 @@ export default function CreateCategoryModal({ onClose, onCreated }) {
     if (!categoryName.trim()) return;
 
     setSubmitting(true);
-
-    const payload = {
-      category_name: categoryName.trim()
-    };
-
-    if (typeof google !== 'undefined' && google.script) {
-      google.script.run
-        .withSuccessHandler(() => {
-          setSubmitting(false);
-          if (onCreated) onCreated(categoryName.trim());
-          onClose();
-        })
-        .withFailureHandler((err) => {
-          console.error('Error saving category:', err);
-          setSubmitting(false);
-        })
-        .apiAddCategory(payload);
-    } else {
-      setTimeout(() => {
-        setSubmitting(false);
-        if (onCreated) onCreated(categoryName.trim());
-        onClose();
-      }, 500);
-    }
+    
+    // Categories are metadata attached to templates. We just pass it up
+    // to state so the user can select it when building a form.
+    setTimeout(() => {
+      setSubmitting(false);
+      if (onCreated) onCreated(categoryName.trim());
+      onClose();
+    }, 300);
   };
 
   return (

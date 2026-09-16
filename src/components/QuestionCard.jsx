@@ -1,26 +1,9 @@
 import React, { useRef, useState } from 'react';
-import {
-  AlertTriangle,
-  Info,
-  Camera,
-  Paperclip,
-  X,
-  Loader2,
-  MessageSquare,
-  Star,
-  ScanLine
-} from 'lucide-react';
+import {AlertTriangle,Info,Camera,Paperclip,X,Loader2,MessageSquare,Star,ScanLine} from 'lucide-react';
 import ScannerModal from './ScannerModal';
-import {
-  getInputKind,
-  getResponseOptions,
-  getScaleMax,
-  parseBool,
-  commentRequired,
-  evidenceRequired,
-  isNegativeAnswer,
-  hasValue
+import {getInputKind,getResponseOptions,getScaleMax,parseBool,commentRequired,evidenceRequired,isNegativeAnswer,hasValue
 } from '../utils/auditEngine';
+import { supabase } from '../supabaseClient'; 
 
 const MAX_EVIDENCE_MB = 8;
 
@@ -76,7 +59,8 @@ export default function QuestionCard({
     setValue(clean);
   };
 
-  const handleFiles = (event) => {
+  // 2. Updated to use Supabase Storage
+  const handleFiles = async (event) => {
     const files = Array.from(event.target.files || []);
     if (!files.length) return;
     setUploadError('');
@@ -89,68 +73,57 @@ export default function QuestionCard({
     }
 
     setUploading(true);
-    let remaining = files.length;
 
-    files.forEach((file) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const base64 = String(reader.result).split(',')[1];
+    try {
+      // Process files one by one (or Promise.all)
+      for (const file of files) {
+        // Generate a clean, unique file path: auditId/timestamp_filename
+        const fileExt = file.name.split('.').pop();
+        const safeName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
+        const filePath = `${auditId}/${Date.now()}_${safeName}`;
 
-        const finish = (record) => {
-          onChange(question.question_id, (prev) => ({
-            ...prev,
-            evidence: [...(prev.evidence || []), record]
-          }));
-          remaining -= 1;
-          if (remaining === 0) setUploading(false);
+        if (!navigator.onLine) {
+          throw new Error('You must be online to upload evidence right now.');
+        }
+
+        // Upload directly to Supabase storage bucket named 'evidence'
+        const { data, error: uploadError } = await supabase.storage
+          .from('evidence')
+          .upload(filePath, file, {
+            cacheControl: '3600',
+            upsert: false
+          });
+
+        if (uploadError) throw uploadError;
+
+        // Get the public URL to save into the database
+        const { data: publicUrlData } = supabase.storage
+          .from('evidence')
+          .getPublicUrl(filePath);
+
+        // Update the state with the new evidence record
+        const record = {
+          evidence_id: `EVD-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+          file_name: file.name,
+          file_url: publicUrlData.publicUrl,
+          mime_type: file.type,
+          evidence_type: file.type.startsWith('image/') ? 'PHOTO' : 'FILE',
+          uploaded_by: currentUser?.email || ''
         };
 
-        if (typeof google !== 'undefined' && google.script) {
-          google.script.run
-            .withSuccessHandler((res) => {
-              if (res && res.success) {
-                finish({
-                  evidence_id: res.evidence_id,
-                  file_name: res.file_name || file.name,
-                  file_url: res.file_url,
-                  mime_type: file.type,
-                  evidence_type: file.type.startsWith('image/') ? 'PHOTO' : 'FILE'
-                });
-              } else {
-                setUploadError(res?.message || 'Upload failed.');
-                remaining -= 1;
-                if (remaining === 0) setUploading(false);
-              }
-            })
-            .withFailureHandler((err) => {
-              setUploadError(err?.message || 'Upload failed.');
-              remaining -= 1;
-              if (remaining === 0) setUploading(false);
-            })
-            .apiUploadEvidence({
-              audit_id: auditId,
-              question_id: question.question_id,
-              file_name: file.name,
-              mime_type: file.type,
-              base64: base64,
-              original_size: file.size,
-              evidence_type: file.type.startsWith('image/') ? 'PHOTO' : 'FILE',
-              uploaded_by: currentUser?.email || ''
-            });
-        } else {
-          finish({
-            evidence_id: 'LOCAL-' + Date.now(),
-            file_name: file.name,
-            file_url: URL.createObjectURL(file),
-            mime_type: file.type,
-            evidence_type: 'PHOTO'
-          });
-        }
-      };
-      reader.readAsDataURL(file);
-    });
+        onChange(question.question_id, (prev) => ({
+          ...prev,
+          evidence: [...(prev.evidence || []), record]
+        }));
+      }
 
-    event.target.value = '';
+    } catch (err) {
+      console.error("Upload error:", err);
+      setUploadError(err.message || 'Failed to upload evidence.');
+    } finally {
+      setUploading(false);
+      event.target.value = '';
+    }
   };
 
   const removeEvidence = (evidenceId) => {
