@@ -11,6 +11,7 @@
     "deploy": "vite build && clasp push"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.116.0",
     "dexie": "^4.4.5",
     "dexie-react-hooks": "^4.4.0",
     "html5-qrcode": "^2.3.8",
