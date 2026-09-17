@@ -22,7 +22,7 @@ export default function LoginScreen({ onAuthenticated }) {
     }
 
     // 2. Strict Domain Validation
-    const allowedDomains = ['swiggy.in', 'external.swiggyimnet.in', 'scootsy.com'];
+    const allowedDomains = ['swiggy.in', 'external.swiggyimnet.in', 'scootsy.com','external.instamart.in'];
     const emailDomain = trimmedEmail.split('@')[1]?.toLowerCase();
 
     if (!emailDomain || !allowedDomains.includes(emailDomain)) {
