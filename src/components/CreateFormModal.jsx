@@ -111,9 +111,10 @@ export default function CreateFormModal({ existingForms = [], onClose, onCreated
     return { ...prev, sections: newSections };
   });
 
-  const updateSectionName = (sIdx, value) => setFormData((prev) => ({ ...prev, sections: prev.sections.map((sec, i) => (i === sIdx ? { ...sec, section_name: value } : sec)) }));
-  const addQuestion = (sIdx) => setFormData((prev) => ({ ...prev, sections: prev.sections.map((sec, i) => (i === sIdx ? { ...sec, questions: [...sec.questions, newQuestion()] } : sec)) }));
-  const updateQuestion = (sIdx, qIdx, field, value) => setFormData((prev) => ({ ...prev, sections: prev.sections.map((sec, i) => { if (i !== sIdx) return sec; return { ...sec, questions: sec.questions.map((q, j) => (j === qIdx ? { ...q, [field]: value } : q)) }; }) }));
+  const updateSectionName = (sIdx, value) =>
+     setFormData((prev) => ({ ...prev, sections: prev.sections.map((sec, i) => (i === sIdx ? { ...sec, section_name: value } : sec)) }));
+      const addQuestion = (sIdx) => setFormData((prev) => ({ ...prev, sections: prev.sections.map((sec, i) => (i === sIdx ? { ...sec, questions: [...sec.questions, newQuestion()] } : sec)) }));
+      const updateQuestion = (sIdx, qIdx, field, value) => setFormData((prev) => ({ ...prev, sections: prev.sections.map((sec, i) => { if (i !== sIdx) return sec; return { ...sec, questions: sec.questions.map((q, j) => (j === qIdx ? { ...q, [field]: value } : q)) }; }) }));
   const toggleEvidenceType = (sIdx, qIdx, evidenceValue) => setFormData((prev) => ({ ...prev, sections: prev.sections.map((sec, i) => { if (i !== sIdx) return sec; return { ...sec, questions: sec.questions.map((q, j) => { if (j !== qIdx) return q; const currentList = q.allowed_evidence || []; const exists = currentList.includes(evidenceValue); return { ...q, allowed_evidence: exists ? currentList.filter((item) => item !== evidenceValue) : [...currentList, evidenceValue] }; }) }; }) }));
   const toggleInstructions = (sIdx, qIdx) => setFormData((prev) => ({ ...prev, sections: prev.sections.map((sec, i) => { if (i !== sIdx) return sec; return { ...sec, questions: sec.questions.map((q, j) => (j === qIdx ? { ...q, showInstructions: !q.showInstructions } : q)) }; }) }));
   const removeQuestion = (sIdx, qIdx) => setFormData((prev) => ({ ...prev, sections: prev.sections.map((sec, i) => { if (i !== sIdx) return sec; return { ...sec, questions: sec.questions.filter((_, j) => j !== qIdx) }; }) }));
@@ -128,7 +129,22 @@ export default function CreateFormModal({ existingForms = [], onClose, onCreated
     const templateId = `TMP-${Date.now()}`;
 
     try {
-      // 1. Insert into templates table
+     const storedUserString = localStorage.getItem('imvitals_user');
+
+      let creatorName = 'System Admin';
+
+      if (storedUserString) {
+        try {
+          const storedUser = JSON.parse(storedUserString);
+          if (storedUser && storedUser.name) {
+            creatorName = storedUser.name;
+          }
+        } catch (e) {
+          console.error("Error parsing user data from local storage", e);
+        }
+      }
+
+
       const { error: templateError } = await supabase
         .from('templates')
         .insert([{
@@ -139,7 +155,9 @@ export default function CreateFormModal({ existingForms = [], onClose, onCreated
           template_status: 'Published',
           template_version: 'v1.0',
           estimated_minutes: Number(formData.estimated_minutes) || 15,
-          active: true
+          active: true,
+          created_by: creatorName,
+          last_edited_by: creatorName,
         }]);
 
       if (templateError) throw templateError;

@@ -51,10 +51,10 @@ export default function FormsView({ templates = [], sections = [], questions = [
         template_description: t.template_description || '',
         template_instructions: t.template_instructions || '',
         audit_type: t.audit_type || 'Internal Audit',
-        owner: t.template_owner_id || 'System Admin',
-        applicable_locations: t.applicable_locations || 'All Locations',
+        created_by: t.created_by || 'Unknown', 
+        last_edited_by: t.last_edited_by || 'Unknown',
         effective_date: formattedDate,
-        template_status: t.template_status === 'Draft' ? 'Draft' : 'Published',
+        template_status: 'Published',
         template_version: t.template_version || 'v1.0',
         estimated_minutes: Number(t.estimated_minutes) || 15,
         sections: []
@@ -225,7 +225,7 @@ export default function FormsView({ templates = [], sections = [], questions = [
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
             <input
               type="text"
-              placeholder="Search forms by name, category, owner..."
+              placeholder="Search forms by name, category..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-10 pr-9 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
@@ -436,25 +436,19 @@ export default function FormsView({ templates = [], sections = [], questions = [
                         <div className="flex items-center gap-2 bg-slate-50 rounded-lg px-2.5 py-2">
                           <User className="w-4 h-4 text-slate-400 shrink-0" />
                           <div className="min-w-0">
-                            <div className="text-[9px] text-slate-400 uppercase font-semibold">Owner</div>
-                            <div className="text-xs font-semibold text-slate-700 truncate">{previewForm.owner || 'N/A'}</div>
+                            <div className="text-[9px] text-slate-400 uppercase font-semibold">Created By</div>
+                            <div className="text-xs font-semibold text-slate-700 truncate">{previewForm.created_by}</div>
                           </div>
                         </div>
                         <div className="flex items-center gap-2 bg-slate-50 rounded-lg px-2.5 py-2">
-                          <MapPin className="w-4 h-4 text-slate-400 shrink-0" />
+                          <FileSignature className="w-4 h-4 text-slate-400 shrink-0" />
                           <div className="min-w-0">
-                            <div className="text-[9px] text-slate-400 uppercase font-semibold">Locations</div>
-                            <div className="text-xs font-semibold text-slate-700 truncate">{previewForm.applicable_locations || 'All Locations'}</div>
+                            <div className="text-[9px] text-slate-400 uppercase font-semibold">Last Edited By</div>
+                            <div className="text-xs font-semibold text-slate-700 truncate">{previewForm.last_edited_by}</div>
                           </div>
                         </div>
+
                         <div className="flex items-center gap-2 bg-slate-50 rounded-lg px-2.5 py-2">
-                          <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
-                          <div className="min-w-0">
-                            <div className="text-[9px] text-slate-400 uppercase font-semibold">Effective Date</div>
-                            <div className="text-xs font-semibold text-slate-700">{previewForm.effective_date || 'Immediate'}</div>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2 bg-slate-50 rounded-lg px-2.5 py-2 col-span-2">
                           <Clock className="w-4 h-4 text-slate-400 shrink-0" />
                           <div className="min-w-0">
                             <div className="text-[9px] text-slate-400 uppercase font-semibold">Estimated Duration</div>
