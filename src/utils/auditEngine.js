@@ -6,7 +6,15 @@ export function parseBool(v) {
 
 export function isNegativeAnswer(question, value) {
   const token = String(value || '').trim().toUpperCase();
-  return ['NO', 'FAIL', 'FAILED', 'NON_COMPLIANT', 'ABSENT', 'REJECTED'].includes(token);
+  return [
+    'NO',
+    'FAIL',
+    'FAILED',
+    'UNSAFE',
+    'NON_COMPLIANT',
+    'ABSENT',
+    'REJECTED'
+  ].includes(token);
 }
 
 export function getComplianceRating(percent, hasCritical) {
