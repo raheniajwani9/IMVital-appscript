@@ -1,14 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import {
   ShieldCheck, ClipboardCheck, TrendingUp, AlertTriangle,
-  RefreshCw, MapPin, Activity, Award, BarChart3, PieChart,
-  Target, CheckCircle2, XCircle, Star, FileText
+  RefreshCw, MapPin, Activity
 } from 'lucide-react';
 import {
   ResponsiveContainer, PieChart as RPie, Pie, Cell, Tooltip, Legend,
-  BarChart as RBar, Bar, XAxis, YAxis, CartesianGrid,
-  AreaChart as RArea, Area,
-  RadialBarChart, RadialBar
+  BarChart as RBar, Bar, XAxis, YAxis, CartesianGrid
 } from 'recharts';
 import { supabase } from '../supabaseClient'; // Import Supabase client
 
@@ -68,23 +65,6 @@ function Donut({ data, centerLabel, centerValue, height = 220 }) {
   );
 }
 
-/* ---- Vertical Bar ---- */
-function VBar({ data, dataKey, xKey, height = 200 }) {
-  return (
-    <ResponsiveContainer width="100%" height={height}>
-      <RBar data={data} margin={{ top: 10, right: 10, bottom: 0, left: -20 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-        <XAxis dataKey={xKey} tick={{ fontSize: 9, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-        <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} allowDecimals={false} />
-        <Tooltip {...tooltipStyle} cursor={{ fill: '#f8fafc' }} />
-        <Bar dataKey={dataKey} radius={[6, 6, 0, 0]}>
-          {data.map((entry, i) => <Cell key={i} fill={entry.color || '#3b82f6'} />)}
-        </Bar>
-      </RBar>
-    </ResponsiveContainer>
-  );
-}
-
 /* ---- Horizontal Bar ---- */
 function HBar({ data, dataKey, labelKey, color = '#3b82f6', height = 220 }) {
   return (
@@ -100,39 +80,6 @@ function HBar({ data, dataKey, labelKey, color = '#3b82f6', height = 220 }) {
   );
 }
 
-/* ---- Area Chart ---- */
-function Timeline({ data, height = 200 }) {
-  return (
-    <ResponsiveContainer width="100%" height={height}>
-      <RArea data={data} margin={{ top: 10, right: 10, bottom: 0, left: -20 }}>
-        <defs>
-          <linearGradient id="audAreaGrad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.3} />
-            <stop offset="100%" stopColor="#3b82f6" stopOpacity={0.02} />
-          </linearGradient>
-        </defs>
-        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-        <XAxis dataKey="date" tick={{ fontSize: 9, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-        <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} allowDecimals={false} />
-        <Tooltip {...tooltipStyle} cursor={{ stroke: '#3b82f6', strokeWidth: 1 }} />
-        <Area type="monotone" dataKey="count" stroke="#3b82f6" strokeWidth={2} fill="url(#audAreaGrad)" dot={{ r: 3, fill: '#3b82f6' }} activeDot={{ r: 5 }} />
-      </RArea>
-    </ResponsiveContainer>
-  );
-}
-
-/* ---- Progress Ring ---- */
-function ProgressRing({ value, color = '#10b981', size = 200 }) {
-  return (
-    <ResponsiveContainer width="100%" height={size}>
-      <RadialBarChart cx="50%" cy="50%" innerRadius="70%" outerRadius="100%" barSize={12} data={[{ name: 'compliance', value: value, fill: color }]} startAngle={90} endAngle={-270}>
-        <RadialBar background={{ fill: '#f1f5f9' }} dataKey="value" cornerRadius={6} />
-        <text x="50%" y="48%" textAnchor="middle" className="fill-slate-900" style={{ fontSize: '22px', fontWeight: 900 }}>{value}%</text>
-      </RadialBarChart>
-    </ResponsiveContainer>
-  );
-}
-
 /* ---- Defaults ---- */
 const DEFAULTS = {
   kpis: { totalAudits: 0, submittedCount: 0, inProgressCount: 0, passedCount: 0, failedCount: 0, avgScore: 0, passRate: 0, openActionsCount: 0, complianceScore: 0 },
@@ -141,7 +88,7 @@ const DEFAULTS = {
 };
 
 // Simple helper to process raw Supabase data into the dashboard format
-function processAuditorData(audits, actions) {
+function processAuditorData(audits, actions, locations = []) {
   const submitted = audits.filter(a => a.status === 'SUBMITTED' || a.status === 'APPROVED' || a.status === 'COMPLETED');
   const inProgress = audits.filter(a => a.status === 'IN_PROGRESS');
   const passed = submitted.filter(a => a.result === 'PASSED');
@@ -183,12 +130,24 @@ function processAuditorData(audits, actions) {
     { label: 'Failed', count: failed.length, color: '#ef4444' }
   ];
 
+  const byLocationMap = new Map();
+  audits.forEach((audit) => {
+    const locationId = String(audit.location_id || audit.pod_id || '').trim();
+    const location = locations.find((item) => [item.location_id, item.pod_id, item['Location ID'], item.store_id, item['Store Name'], item.store_name, item.location_name]
+      .some((value) => String(value || '').trim().toLowerCase() === locationId.toLowerCase()));
+    const label = location?.['Store Name'] || location?.store_name || location?.location_name || locationId || 'Unknown location';
+    byLocationMap.set(label, (byLocationMap.get(label) || 0) + 1);
+  });
+  const byLocation = [...byLocationMap.entries()]
+    .map(([location, auditCount]) => ({ location, auditCount }))
+    .sort((a, b) => b.auditCount - a.auditCount || a.location.localeCompare(b.location));
+
   return {
     kpis,
     statusBreakdown,
     passFail,
     scoreDistribution: [], // Needs more complex bucketing logic based on your backend
-    byLocation: [], // Simplified for this example
+    byLocation,
     byTemplate: [], // Simplified
     riskDistribution: [], // Simplified
     recentAudits: submitted.sort((a, b) => new Date(b.submitted_at) - new Date(a.submitted_at)).slice(0, 10),
@@ -207,13 +166,15 @@ export default function AuditorDashboard({ currentUser, onRefresh }) {
     try {
       const [
         { data: audits },
-        { data: actions }
+        { data: actions },
+        { data: locations }
       ] = await Promise.all([
         supabase.from('audits').select('*').eq('auditor_id', currentUser.user_id),
-        supabase.from('actions').select('*').eq('owner_email', currentUser.email)
+        supabase.from('actions').select('*').eq('owner_email', currentUser.email),
+        supabase.from('locations').select('*')
       ]);
 
-      const processedData = processAuditorData(audits || [], actions || []);
+      const processedData = processAuditorData(audits || [], actions || [], locations || []);
       setData({ ...DEFAULTS, ...processedData });
       setLoading(false);
     } catch (err) {
@@ -267,22 +228,8 @@ export default function AuditorDashboard({ currentUser, onRefresh }) {
               color="text-rose-600" bg="bg-rose-50" border="border-rose-100" />
           </div>
 
-          {/* Compliance + Pass/Fail + Status */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            <ChartCard title="My Compliance Score" icon={Target}>
-              <ProgressRing
-                value={k.complianceScore}
-                color={k.complianceScore >= 75 ? '#10b981' : k.complianceScore >= 50 ? '#f59e0b' : '#ef4444'}
-              />
-              <div className="flex items-center justify-center gap-2 text-xs mt-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                <span className="font-bold text-slate-600">{k.passedCount} passed</span>
-                <span className="text-slate-300">·</span>
-                <XCircle className="w-4 h-4 text-rose-500" />
-                <span className="font-bold text-slate-600">{k.failedCount} failed</span>
-              </div>
-            </ChartCard>
-
+          {/* Pass/Fail + Status */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <ChartCard title="Pass / Fail" icon={ShieldCheck}>
               {data.passFail.some(d => d.count > 0) ? (
                 <Donut data={data.passFail} centerLabel="Audits" centerValue={k.submittedCount} />
@@ -300,107 +247,13 @@ export default function AuditorDashboard({ currentUser, onRefresh }) {
             </ChartCard>
           </div>
 
-          {/* Score distribution + Activity */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <ChartCard title="Score Distribution" icon={BarChart3}>
-              <VBar data={data.scoreDistribution} dataKey="count" xKey="range" />
-            </ChartCard>
-
-            <ChartCard title="My Activity (Last 14 Days)" icon={Activity}>
-              <Timeline data={data.activityTimeline} />
-            </ChartCard>
-          </div>
-
-          {/* By location + By template */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* Audits by location */}
+          <div className="grid grid-cols-1 gap-4">
             <ChartCard title="My Audits by Location" icon={MapPin}>
-              <HBar data={data.byLocation} dataKey="auditCount" labelKey="location" color="#0ea5e9" />
-              <div className="mt-3 pt-3 border-t border-slate-100 space-y-1.5">
-                {data.byLocation.slice(0, 4).map((l, i) => (
-                  <div key={i} className="flex items-center justify-between text-[11px]">
-                    <span className="font-semibold text-slate-500">{l.location}</span>
-                    <span className="font-bold text-slate-700">avg {l.avgScore}% · {l.failures} fail</span>
-                  </div>
-                ))}
-              </div>
-            </ChartCard>
-
-            <ChartCard title="My Audits by Template" icon={FileText}>
-              <HBar data={data.byTemplate} dataKey="auditCount" labelKey="template" color="#6366f1" />
-              <div className="mt-3 pt-3 border-t border-slate-100 space-y-1.5">
-                {data.byTemplate.slice(0, 4).map((t, i) => (
-                  <div key={i} className="flex items-center justify-between text-[11px]">
-                    <span className="font-semibold text-slate-500">{t.template}</span>
-                    <span className="font-bold text-slate-700">avg {t.avgScore}% · {t.failures} fail</span>
-                  </div>
-                ))}
-              </div>
-            </ChartCard>
-          </div>
-
-          {/* Recent audits table */}
-          <ChartCard title="My Recent Audits" icon={Award}>
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="text-left border-b border-slate-100">
-                    <th className="pb-2 pr-3 font-bold text-slate-400 uppercase tracking-wider text-[10px]">Template</th>
-                    <th className="pb-2 pr-3 font-bold text-slate-400 uppercase tracking-wider text-[10px]">Location</th>
-                    <th className="pb-2 pr-3 font-bold text-slate-400 uppercase tracking-wider text-[10px] text-right">Score</th>
-                    <th className="pb-2 pr-3 font-bold text-slate-400 uppercase tracking-wider text-[10px] text-center">Result</th>
-                    <th className="pb-2 pr-3 font-bold text-slate-400 uppercase tracking-wider text-[10px] text-center">Fails</th>
-                    <th className="pb-2 font-bold text-slate-400 uppercase tracking-wider text-[10px] text-right">Date</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.recentAudits.length > 0 ? data.recentAudits.map((a, i) => (
-                    <tr key={i} className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors">
-                      <td className="py-2.5 pr-3 font-semibold text-slate-700 truncate max-w-[140px]">{a.template_name}</td>
-                      <td className="py-2.5 pr-3 text-slate-500">{a.location_id}</td>
-                      <td className="py-2.5 pr-3 text-right">
-                        <span className={`font-black ${a.score_percent >= 75 ? 'text-emerald-600' : a.score_percent >= 50 ? 'text-amber-600' : 'text-rose-600'}`}>
-                          {a.score_percent}%
-                        </span>
-                      </td>
-                      <td className="py-2.5 pr-3 text-center">
-                        <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${a.result === 'PASSED' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
-                          {a.result}
-                        </span>
-                      </td>
-                      <td className="py-2.5 pr-3 text-center">
-                        <span className="font-bold text-slate-600">{a.failure_count}</span>
-                        {a.critical_failures > 0 && <span className="ml-1 text-[9px] font-bold text-rose-500">({a.critical_failures} crit)</span>}
-                      </td>
-                      <td className="py-2.5 text-right text-slate-400 font-medium">
-                        {a.submitted_at ? new Date(a.submitted_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}
-                      </td>
-                    </tr>
-                  )) : (
-                    <tr><td colSpan={6} className="py-8 text-center text-slate-400 font-semibold">No submitted audits yet</td></tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </ChartCard>
-
-          {/* Rating distribution */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <ChartCard title="My Rating Distribution" icon={Star}>
-              {data.ratingDistribution.length > 0 ? (
-                <HBar data={data.ratingDistribution} dataKey="count" labelKey="rating" color="#f59e0b" />
+              {data.byLocation.length > 0 ? (
+                <HBar data={data.byLocation} dataKey="auditCount" labelKey="location" color="#0ea5e9" />
               ) : (
-                <div className="text-center py-10 text-xs text-slate-400 font-semibold">No ratings yet</div>
-              )}
-            </ChartCard>
-
-            <ChartCard title="My Risk Distribution (Failures)" icon={AlertTriangle}>
-              {data.riskDistribution.length > 0 ? (
-                <HBar data={data.riskDistribution} dataKey="count" labelKey="risk" color="#f97316" />
-              ) : (
-                <div className="text-center py-10 text-xs text-emerald-500 font-semibold flex flex-col items-center gap-2">
-                  <CheckCircle2 className="w-8 h-8" />
-                  No failures recorded
-                </div>
+                <div className="py-10 text-center text-xs font-semibold text-slate-400">No audits with a location yet</div>
               )}
             </ChartCard>
           </div>
