@@ -4,6 +4,8 @@ import AdminWorkspace from './workspaces/AdminWorkspace';
 import AuditorWorkspace from './workspaces/AuditorWorkspace';
 import { resolveWorkspace } from './constants/navigation';
 import { supabase } from './supabaseClient'; // 1. Import your Supabase client
+import AuditManagerWorkspace from './workspaces/AuditManagerWorkspace';
+import ActionOwnerWorkspace from './workspaces/ActionOwnerWorkspace';
 
 export default function App() {
   // Persistent User Authentication State
@@ -49,6 +51,7 @@ export default function App() {
                 answered_questions: item.summary?.answered || 0,
                 total_questions: item.summary?.total || 0,
                 result: (item.summary?.percent >= 75 && item.summary?.criticalFailures === 0) ? 'PASSED' : 'FAILED', 
+                audit_manager_id: item.audit_manager_id || null,
               })
               .eq('audit_id', item.audit_id);
               
@@ -74,6 +77,14 @@ export default function App() {
 
                  if (responsesError) throw responsesError;
               }
+            }
+
+            if (Array.isArray(item.actions) && item.actions.length > 0) {
+              const { error: actionsError } = await supabase
+                .from('actions')
+                .upsert(item.actions, { onConflict: 'action_id' });
+
+              if (actionsError) throw actionsError;
             }
           } catch (err) {
             console.error('Failed to sync offline item:', item.audit_id, err);
@@ -112,9 +123,41 @@ export default function App() {
 
   const workspace = resolveWorkspace(currentUser.role);
 
-  return workspace === 'ADMIN' ? (
-    <AdminWorkspace currentUser={currentUser} onLogout={handleLogout} />
-  ) : (
-    <AuditorWorkspace currentUser={currentUser} onLogout={handleLogout} />
+  if (workspace === 'ADMIN') {
+    return (
+      <AdminWorkspace
+        currentUser={currentUser}
+        onLogout={handleLogout}
+      />
+    );
+  }
+
+  if (workspace === 'ACTION_OWNER') {
+    return (
+      <ActionOwnerWorkspace
+        currentUser={currentUser}
+        onLogout={handleLogout}
+      />
+    );
+  }
+if (
+  String(currentUser.role || '')
+    .trim()
+    .toUpperCase()
+    .replace(/[\s-]+/g, '_') === 'AUDIT_MANAGER'
+) {
+  return (
+    <AuditManagerWorkspace
+      currentUser={currentUser}
+      onLogout={handleLogout}
+    />
   );
+}
+
+return (
+  <AuditorWorkspace
+    currentUser={currentUser}
+    onLogout={handleLogout}
+  />
+);
 }
