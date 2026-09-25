@@ -1,23 +1,43 @@
 import React, { useState, useMemo } from 'react';
 import {
-  Loader2, X, Plus, Trash2, HelpCircle, Camera,
-  FileSignature, QrCode, MapPin, Layers, FileText,
+  Loader2, X, Plus, Trash2, HelpCircle, Camera, Layers, FileText,
   ChevronLeft, Check, ArrowRight, Pencil,
   ShieldCheck, AlertTriangle
 } from 'lucide-react';
 import { supabase } from '../supabaseClient'; // 1. Import your Supabase client
 
 const RESPONSE_TYPES = [
-  { value: 'YES_NO', label: 'Yes / No' }, { value: 'PASS_FAIL', label: 'Pass / Fail' },
-  { value: 'PHOTO', label: 'Photo Evidence' }, { value: 'RATING', label: 'Rating (1-5)' }
+  { value: 'YES_NO', label: 'Yes / No' }, 
+  { value: 'PASS_FAIL', label: 'Pass / Fail' },
+  { value: 'PHOTO', label: 'Photo Evidence' },
+  { value: 'COMPLETE_NOT_COMPLETE', label: 'Complete / Not Complete' },
+  { value: 'RATING', label: 'Rating (1-5)' }
 ];
+
+const getResponseScores = (responseType, maxScore) => {
+  const score = Number(maxScore) || 0;
+
+  const responseLabels = {
+    YES_NO: ['Yes', 'No'],
+    PASS_FAIL: ['Pass', 'Fail'],
+    COMPLETE_NOT_COMPLETE: ['Complete', 'Not Complete']
+  }[responseType];
+
+  if (!responseLabels) return [];
+
+  return [
+    { label: responseLabels[0], score },
+    { label: responseLabels[1], score: 0 },
+    { label: 'N/A', score: 'Excluded' }
+  ];
+};
+
 const EVIDENCE_POLICIES = [
   { value: 'NONE', label: 'Not Required' }, { value: 'OPTIONAL', label: 'Optional' },
   { value: 'MANDATORY', label: 'Always Required' }, { value: 'MANDATORY_ON_FAIL', label: 'Required on Failure' }
 ];
 const EVIDENCE_TYPES = [
-  { value: 'PHOTO', label: 'Photo', icon: Camera }, { value: 'GPS', label: 'GPS', icon: MapPin },
-  { value: 'BARCODE', label: 'QR / Barcode', icon: QrCode }, { value: 'SIGNATURE', label: 'Signature', icon: FileSignature }
+  { value: 'PHOTO', label: 'Photo', icon: Camera }
 ];
 const AUDIT_TYPES = ['Internal Audit', 'External Audit', 'Safety & Compliance', 'Process / Operational', 'Spot Check'];
 
@@ -38,20 +58,16 @@ const COMMENT_REQUIREMENTS = [
 
 const parseBool = (v) => String(v).toLowerCase() === 'true';
 const parseTags = (v) => { try { return JSON.parse(v || '[]'); } catch { return Array.isArray(v) ? v : []; } };
-
-// Answer types removed from the builder — legacy questions using them
-// normalize to YES_NO so the select never renders blank.
-const DEPRECATED_RESPONSE_TYPES = ['GPS', 'BARCODE', 'SIGNATURE', 'TEXT', 'NUMBER'];
-const normalizeResponseType = (rt) => (DEPRECATED_RESPONSE_TYPES.includes(rt) ? 'YES_NO' : (rt || 'YES_NO'));
+const normalizeResponseType = (responseType) =>
+  RESPONSE_TYPES.some((type) => type.value === responseType)
+    ? responseType
+    : 'YES_NO';
 
 const blankQ = () => ({
   question_text: '', response_type: 'YES_NO', evidence_policy: 'OPTIONAL',
-  allowed_evidence: ['PHOTO', 'GPS', 'BARCODE', 'SIGNATURE'],
-  gps_config: { require_geofence: false, max_accuracy_meters: 50, store_radius_meters: 100 },
-  barcode_config: { verification_type: 'ASSET', allow_manual_fallback: true },
-  signature_config: { signer_role: 'Store Manager', require_signer_name: true },
+  allowed_evidence: [],
   points: 1, is_required: true, instructions: '', showInstructions: false,
-  scored: false, failure_response: 'NONE', critical_question: false,
+  scored: true,
   na_allowed: false, risk_category: 'General', tags: [], comment_required: 'NEVER'
 });
 
@@ -59,10 +75,7 @@ const hydrateQ = (q) => ({
   question_text: q.question_text || '',
   response_type: normalizeResponseType(q.response_type),
   evidence_policy: q.evidence_policy || 'OPTIONAL',
-  allowed_evidence: q.allowed_evidence || ['PHOTO'],
-  gps_config: q.gps_config || { require_geofence: false, max_accuracy_meters: 50, store_radius_meters: 100 },
-  barcode_config: q.barcode_config || { verification_type: 'ASSET', allow_manual_fallback: true },
-  signature_config: q.signature_config || { signer_role: 'Store Manager', require_signer_name: true },
+  allowed_evidence: q.allowed_evidence || [],
   points: q.points || q.max_score || 1,
   is_required: q.is_required ?? q.required ?? true,
   instructions: q.instructions || q.help_text || '',
@@ -156,7 +169,28 @@ export default function UpdateFormModal({ form, onClose, onUpdated }) {
 
   const updateSectionName = (sIdx, value) => setFormData((prev) => ({ ...prev, sections: prev.sections.map((sec, i) => (i === sIdx ? { ...sec, section_name: value } : sec)) }));
   const addQuestion = (sIdx) => setFormData((prev) => ({ ...prev, sections: prev.sections.map((sec, i) => (i === sIdx ? { ...sec, questions: [...sec.questions, blankQ()] } : sec)) }));
-  const updateQuestion = (sIdx, qIdx, field, value) => setFormData((prev) => ({ ...prev, sections: prev.sections.map((sec, i) => { if (i !== sIdx) return sec; return { ...sec, questions: sec.questions.map((q, j) => (j === qIdx ? { ...q, [field]: value } : q)) }; }) }));
+
+  const updateQuestion = (sIdx, qIdx, field, value) =>
+  setFormData((prev) => ({
+    ...prev,
+    sections: prev.sections.map((sec, i) => {
+      if (i !== sIdx) return sec;
+
+      return {
+        ...sec,
+        questions: sec.questions.map((q, j) => {
+          if (j !== qIdx) return q;
+
+          const updated = { ...q, [field]: value };
+          if (field === 'response_type' && value !== 'PHOTO') {
+            updated.allowed_evidence = [];
+          }
+          return updated;
+        })
+      };
+    })
+  }));
+
   const toggleEvidenceType = (sIdx, qIdx, evidenceValue) => setFormData((prev) => ({ ...prev, sections: prev.sections.map((sec, i) => { if (i !== sIdx) return sec; return { ...sec, questions: sec.questions.map((q, j) => { if (j !== qIdx) return q; const currentList = q.allowed_evidence || []; const exists = currentList.includes(evidenceValue); return { ...q, allowed_evidence: exists ? currentList.filter((item) => item !== evidenceValue) : [...currentList, evidenceValue] }; }) }; }) }));
   const toggleInstructions = (sIdx, qIdx) => setFormData((prev) => ({ ...prev, sections: prev.sections.map((sec, i) => { if (i !== sIdx) return sec; return { ...sec, questions: sec.questions.map((q, j) => (j === qIdx ? { ...q, showInstructions: !q.showInstructions } : q)) }; }) }));
   const removeQuestion = (sIdx, qIdx) => setFormData((prev) => ({ ...prev, sections: prev.sections.map((sec, i) => { if (i !== sIdx) return sec; return { ...sec, questions: sec.questions.filter((_, j) => j !== qIdx) }; }) }));
@@ -375,17 +409,17 @@ export default function UpdateFormModal({ form, onClose, onUpdated }) {
                   <div className="w-7 h-7 rounded-lg bg-indigo-100 flex items-center justify-center">
                     <Layers className="w-4 h-4 text-indigo-600" />
                   </div>
-                  <h3 className="text-sm font-bold text-slate-700">Section {currentSectionIdx + 1} of {totalSections}</h3>
-                  <span className="text-xs text-slate-400 ml-1">— Edit questions for this section</span>
+                  <h3 className="text-sm font-bold text-slate-700">
+                    {formData.sections[currentSectionIdx].section_name || 'Untitled Section'}
+                  </h3>
+                  <span className="text-xs text-slate-400">
+                    Section {currentSectionIdx + 1} of {totalSections}
+                  </span>
                 </div>
               </div>
 
               <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
                 <div className="flex items-center gap-3 px-4 py-3 bg-slate-50 border-b border-slate-200">
-                  <div className="w-7 h-7 rounded-lg bg-white border border-slate-200 flex items-center justify-center shrink-0">
-                    <Layers className="w-4 h-4 text-slate-400" />
-                  </div>
-                  <input type="text" required placeholder="Section name..." className="flex-1 bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" value={formData.sections[currentSectionIdx].section_name} onChange={(e) => updateSectionName(currentSectionIdx, e.target.value)} />
                   {totalSections > 1 && (
                     <button type="button" onClick={() => removeSection(currentSectionIdx)} className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors shrink-0">
                       <Trash2 className="w-4 h-4" />
@@ -426,8 +460,24 @@ export default function UpdateFormModal({ form, onClose, onUpdated }) {
                       <input required type="text" placeholder="Type your question here..." className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" value={q.question_text} onChange={(e) => updateQuestion(currentSectionIdx, qIdx, 'question_text', e.target.value)} />
 
                       {(q.showInstructions || q.instructions) && (
-                        <input type="text" placeholder="Add helpful instructions for this question..." className="w-full bg-amber-50/50 border border-amber-200 rounded-lg px-3 py-2 text-sm text-slate-600 placeholder:text-amber-400/70 focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500" value={q.instructions || ''} onChange={(e) => updateQuestion(currentSectionIdx, qIdx, 'instructions', e.target.value)} />
-                      )}
+                          <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-4">
+                            <label className="mb-1.5 block text-xs font-semibold text-slate-700">
+                              Guidance for the auditor
+                            </label>
+                            <p className="mb-2 text-xs text-slate-500">
+                              Explain what to check or how to answer this question.
+                            </p>
+                            <textarea
+                              rows={3}
+                              placeholder="For example: Check that the seal is intact and record any visible damage."
+                              className="w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                              value={q.instructions || ''}
+                              onChange={(e) =>
+                                updateQuestion(currentSectionIdx, qIdx, 'instructions', e.target.value)
+                              }
+                            />
+                          </div>
+                        )}
 
                       <div className="grid grid-cols-3 gap-3">
                         <div>
@@ -448,6 +498,30 @@ export default function UpdateFormModal({ form, onClose, onUpdated }) {
                         </div>
                       </div>
 
+                      {getResponseScores(q.response_type, q.points).length > 0 && (
+                        <div className="rounded-xl border border-slate-200 bg-white p-3">
+                          <p className="mb-1 text-xs font-semibold text-slate-700">
+                            Response scoring
+                          </p>
+                          <p className="mb-2 text-[11px] text-slate-500">
+                            N/A responses are excluded from the score.
+                          </p>
+                          <div className="grid grid-cols-3 gap-2">
+                            {getResponseScores(q.response_type, q.points).map((item) => (
+                              <div
+                                key={item.label}
+                                className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2"
+                              >
+                                <p className="text-[11px] text-slate-500">{item.label}</p>
+                                <p className="text-sm font-semibold text-slate-800">
+                                  {item.score === 'Excluded' ? item.score : `${item.score} points`}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
                       {/* ── Scoring & Validation ── */}
                       <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-3">
                         <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-500 uppercase tracking-wide">
@@ -455,17 +529,29 @@ export default function UpdateFormModal({ form, onClose, onUpdated }) {
                         </div>
 
                         <div className="flex flex-wrap items-center gap-4">
-                          <label className="flex items-center gap-1.5 cursor-pointer">
-                            <input type="checkbox" checked={q.scored ?? false} onChange={(e) => updateQuestion(currentSectionIdx, qIdx, 'scored', e.target.checked)} className="w-3.5 h-3.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer" />
-                            <span className="text-[11px] font-semibold text-slate-600">Scored</span>
-                          </label>
-                          <label className="flex items-center gap-1.5 cursor-pointer">
-                            <input type="checkbox" checked={q.critical_question ?? false} onChange={(e) => updateQuestion(currentSectionIdx, qIdx, 'critical_question', e.target.checked)} className="w-3.5 h-3.5 rounded border-slate-300 text-rose-600 focus:ring-rose-500 cursor-pointer" />
-                            <span className="text-[11px] font-semibold text-rose-600 flex items-center gap-1"><AlertTriangle className="w-3 h-3" /> Critical</span>
-                          </label>
-                          <label className="flex items-center gap-1.5 cursor-pointer">
-                            <input type="checkbox" checked={q.na_allowed ?? false} onChange={(e) => updateQuestion(currentSectionIdx, qIdx, 'na_allowed', e.target.checked)} className="w-3.5 h-3.5 rounded border-slate-300 text-slate-600 focus:ring-slate-500 cursor-pointer" />
-                            <span className="text-[11px] font-semibold text-slate-600">N/A allowed</span>
+                          <label className="group relative flex cursor-pointer items-center gap-1.5">
+                            <input
+                              type="checkbox"
+                              checked={q.critical_question ?? false}
+                              onChange={(e) =>
+                                updateQuestion(
+                                  currentSectionIdx,
+                                  qIdx,
+                                  'critical_question',
+                                  e.target.checked
+                                )
+                              }
+                              className="h-3.5 w-3.5 cursor-pointer rounded border-slate-300 text-rose-600 focus:ring-rose-500"
+                            />
+                            <span className="flex items-center gap-1 text-[11px] font-semibold text-rose-600">
+                              <AlertTriangle className="h-3 w-3" />
+                              Critical
+                              <HelpCircle className="h-3 w-3 text-rose-400" />
+                            </span>
+                            <span className="pointer-events-none absolute bottom-full left-0 z-20 mb-2 w-64 rounded-lg bg-slate-900 px-3 py-2 text-[11px] leading-relaxed text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                              A critical question covers a high-risk requirement. A failed answer may
+                              need immediate action or escalation.
+                            </span>
                           </label>
                         </div>
 
@@ -495,22 +581,39 @@ export default function UpdateFormModal({ form, onClose, onUpdated }) {
                           <input type="text" placeholder="e.g. fire, extinguisher, emergency" className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-2 text-xs font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" value={(q.tags || []).join(', ')} onChange={(e) => updateQuestion(currentSectionIdx, qIdx, 'tags', e.target.value.split(',').map((t) => t.trim()).filter(Boolean))} />
                         </div>
                       </div>
+                      
 
+                      {q.response_type === 'PHOTO' && (
                       <div>
-                        <label className="block text-[11px] font-semibold text-slate-400 mb-2">Allowed Evidence Types</label>
+                        <label className="mb-2 block text-[11px] font-semibold text-slate-400">
+                          Allowed Evidence Types
+                        </label>
                         <div className="flex flex-wrap gap-2">
                           {EVIDENCE_TYPES.map((type) => {
                             const Icon = type.icon;
                             const isSelected = (q.allowed_evidence || []).includes(type.value);
+
                             return (
-                              <button key={type.value} type="button" onClick={() => toggleEvidenceType(currentSectionIdx, qIdx, type.value)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${isSelected ? 'bg-indigo-50 text-indigo-700 border border-indigo-300' : 'bg-white text-slate-400 border border-slate-200 hover:bg-slate-50'}`}>
-                                <Icon className="w-3.5 h-3.5" />
+                              <button
+                                key={type.value}
+                                type="button"
+                                onClick={() =>
+                                  toggleEvidenceType(currentSectionIdx, qIdx, type.value)
+                                }
+                                className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-all ${
+                                  isSelected
+                                    ? 'border-indigo-300 bg-indigo-50 text-indigo-700'
+                                    : 'border-slate-200 bg-white text-slate-400 hover:bg-slate-50'
+                                }`}
+                              >
+                                <Icon className="h-3.5 w-3.5" />
                                 <span>{type.label}</span>
                               </button>
                             );
                           })}
                         </div>
                       </div>
+                    )}
                     </div>
                   ))}
 
