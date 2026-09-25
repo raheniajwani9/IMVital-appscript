@@ -241,7 +241,11 @@ export default function AuditorWorkspace({ currentUser, onLogout }) {
             onRefreshData={fetchData}
           />
         ) : (
-          <AuditHistoryView audits={data.audits} />
+          <AuditHistoryView
+            audits={data.audits}
+            templates={data.templates}
+            locations={data.locations}
+          />
         )}
       </AppShell>
 
