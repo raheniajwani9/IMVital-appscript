@@ -4,6 +4,15 @@ import { ChevronLeft, ChevronRight, MapPin, PlayCircle } from 'lucide-react';
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const WEEKDAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
+const PRIORITY_ORDER = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
+const PRIORITY_OPTIONS = [
+  { value: 'ALL', label: 'All priorities' },
+  { value: 'CRITICAL', label: 'Critical' },
+  { value: 'HIGH', label: 'High' },
+  { value: 'MEDIUM', label: 'Medium' },
+  { value: 'LOW', label: 'Low' }
+];
+
 /* date helpers — safe for "YYYY-MM-DD" strings */
 const toISO = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
@@ -16,6 +25,24 @@ const parse = (v) => {
 };
 
 const fmt = (v) => parse(v)?.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) || 'N/A';
+
+// Schedules use run_date as the assigned inspection date; due_date is the deadline.
+const getAssignedDate = (assignment) =>
+  assignment.run_date || assignment.start_date || assignment.created_at;
+
+const getAuditName = (assignment, templates = [], template) => {
+  const matchedTemplate = template || templates.find((t) =>
+    String(t.template_id) === String(assignment.template_id) ||
+    String(t.template_code) === String(assignment.template_id)
+  );
+  const storedName = String(assignment.template_name || '').trim();
+  const isGeneratedTemplateId = storedName.startsWith('TMP-');
+
+  return matchedTemplate?.template_name ||
+    (!isGeneratedTemplateId && storedName) ||
+    assignment.template_id ||
+    'Untitled Audit';
+};
 
 /* chip color by status */
 const chipTone = (a) => {
@@ -36,19 +63,33 @@ export default function AuditorCalendarView({
   const todayISO = toISO(now);
   const [ym, setYm] = useState({ y: now.getFullYear(), m: now.getMonth() });
   const [selected, setSelected] = useState(todayISO);
+  const [priorityFilter, setPriorityFilter] = useState('ALL');
 
-  /* group assignments by due date */
+  const filteredAssignments = useMemo(() => {
+    const filtered = assignments.filter((assignment) =>
+      priorityFilter === 'ALL' ||
+      String(assignment.priority || 'MEDIUM').toUpperCase() === priorityFilter
+    );
+
+    return filtered.sort((a, b) => {
+      const aPriority = PRIORITY_ORDER[String(a.priority || 'MEDIUM').toUpperCase()] ?? 4;
+      const bPriority = PRIORITY_ORDER[String(b.priority || 'MEDIUM').toUpperCase()] ?? 4;
+      return aPriority - bPriority;
+    });
+  }, [assignments, priorityFilter]);
+
+  /* Group assignments by their assigned inspection date (run_date), not deadline. */
   const byDay = useMemo(() => {
     const map = {};
-    assignments.forEach((a) => {
-      const d = parse(a.due_date || a.next_run_date || a.start_date);
+    filteredAssignments.forEach((a) => {
+      const d = parse(getAssignedDate(a));
       if (d) {
         const key = toISO(d);
         (map[key] = map[key] || []).push(a);
       }
     });
     return map;
-  }, [assignments]);
+  }, [filteredAssignments]);
 
   /* 6-week grid starting Sunday */
   const cells = useMemo(() => {
@@ -62,16 +103,16 @@ export default function AuditorCalendarView({
 
   /* month summary */
   const summary = useMemo(() => {
-    let due = 0, overdue = 0, done = 0;
+    let assigned = 0, overdue = 0, done = 0;
     cells.filter((c) => c.inMonth).forEach((c) => {
       (byDay[c.iso] || []).forEach((a) => {
-        due += 1;
+        assigned += 1;
         const st = String(a.audit_status || '').toUpperCase();
         if (['SUBMITTED', 'COMPLETED', 'APPROVED'].includes(st)) done += 1;
         else if (a.is_overdue) overdue += 1;
       });
     });
-    return { due, overdue, done };
+    return { assigned, overdue, done };
   }, [cells, byDay]);
 
   const events = byDay[selected] || [];
@@ -94,20 +135,36 @@ export default function AuditorCalendarView({
       {/* Compact header */}
       <div className="flex items-end justify-between gap-1">
         <div>
-          <h1 className="text-xl font-bold text-slate-900 tracking-tight">My Calendar</h1>
-          <p className="text-xs font-medium text-slate-500 mt-0.5">
-            {summary.due} due this month · {summary.overdue} overdue · {summary.done} completed
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">My Calendar</h1>
+          <p className="text-sm font-medium text-slate-500 mt-0.5">
+            {summary.assigned} assigned this month · {summary.overdue} overdue · {summary.done} completed
           </p>
         </div>
       </div>
 
+      <div className="max-w-sm">
+        <label htmlFor="calendar-priority-filter" className="block text-xs font-semibold text-slate-500 mb-1.5">
+          Filter inspections by priority
+        </label>
+        <select
+          id="calendar-priority-filter"
+          value={priorityFilter}
+          onChange={(event) => setPriorityFilter(event.target.value)}
+          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+        >
+          {PRIORITY_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>{option.label}</option>
+          ))}
+        </select>
+      </div>
+
       {/* Side-by-side layout: calendar + day details */}
-      <div className="flex flex-col lg:flex-row gap-4 lg:items-start">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[3fr_2fr] lg:items-start">
         {/* Calendar card */}
-        <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-3 sm:p-4 flex-1 min-w-0">
+        <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-4 sm:p-6 min-w-0">
           {/* Month nav */}
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-base font-bold text-slate-900 tracking-tight">
+            <h2 className="text-lg font-bold text-slate-900 tracking-tight">
               {MONTHS[ym.m]} <span className="font-medium text-slate-400">{ym.y}</span>
             </h2>
             <div className="flex items-center gap-1">
@@ -147,7 +204,7 @@ export default function AuditorCalendarView({
                 <button
                   key={cell.iso}
                   onClick={() => setSelected(cell.iso)}
-                  className={`min-h-[56px] sm:min-h-[64px] border rounded-lg p-1 text-left flex flex-col gap-0.5 transition-colors cursor-pointer
+                  className={`min-h-[76px] sm:min-h-[90px] border rounded-lg p-1.5 text-left flex flex-col gap-0.5 transition-colors cursor-pointer
                     ${cell.inMonth ? 'bg-white border-slate-200/80 hover:border-blue-300 hover:bg-blue-50/40' : 'bg-slate-50/60 border-slate-100'}
                     ${isSelected ? 'ring-2 ring-blue-500 border-blue-500' : ''}`}
                 >
@@ -161,10 +218,10 @@ export default function AuditorCalendarView({
                     {evts.slice(0, 2).map((e) => (
                       <span
                         key={e.schedule_id || e.audit_id}
-                        title={e.template_name || e.template_id}
+                        title={getAuditName(e, templates)}
                         className={`truncate px-1 py-px rounded text-[9px] font-medium leading-snug ${chipTone(e)}`}
                       >
-                        {e.template_name || e.template_id}
+                        {getAuditName(e, templates)}
                       </span>
                     ))}
                     {evts.length > 2 && (
@@ -192,7 +249,7 @@ export default function AuditorCalendarView({
         </div>
 
         {/* Day details panel */}
-        <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-4 lg:w-[340px] xl:w-[380px] shrink-0 lg:max-h-[calc(100vh-11rem)] lg:overflow-y-auto">
+        <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-4 sm:p-6 min-w-0 lg:max-h-[calc(100vh-11rem)] lg:overflow-y-auto">
           <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-100">
             <h3 className="text-xs font-bold text-slate-900 tracking-wide">
               {selected === todayISO ? 'Today' : fmt(selected)}
@@ -212,6 +269,7 @@ export default function AuditorCalendarView({
                 const submitted = ['SUBMITTED', 'COMPLETED', 'APPROVED'].includes(st);
                 const inProgress = st === 'IN_PROGRESS';
                 const tpl = templateFor(a);
+                const auditName = getAuditName(a, templates, tpl);
 
                 return (
                   <div
@@ -221,7 +279,7 @@ export default function AuditorCalendarView({
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <p className="text-xs font-semibold text-slate-900 leading-snug">{a.template_name || a.template_id}</p>
+                        <p className="text-xs font-semibold text-slate-900 leading-snug">{auditName}</p>
                         <p className="flex items-center gap-1 text-[10px] font-medium text-slate-500 mt-1">
                           <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
                           <span className="truncate">{a.location_id || 'All Locations'}</span>
@@ -240,7 +298,7 @@ export default function AuditorCalendarView({
 
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-[10px] font-medium text-slate-400">
-                        {a.priority || 'MEDIUM'} · {a.frequency || 'ONE_TIME'}
+                        {a.priority || 'MEDIUM'} · {a.frequency || 'ONE_TIME'} · Assigned {fmt(getAssignedDate(a))}
                       </span>
                       {!tpl || !(tpl.sections || []).length ? (
                         <span className="text-[9px] font-semibold text-amber-600">Checklist unavailable</span>
