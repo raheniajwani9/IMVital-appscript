@@ -7,12 +7,62 @@ import {
 
 import QuestionCard from '../components/QuestionCard';
 import ScannerModal from '../components/ScannerModal';
-import { computeAuditScore, validateAudit } from '../utils/auditEngine';
+import {
+  computeAuditScore,
+  validateAudit,
+  isNegativeAnswer,
+  parseBool
+} from '../utils/auditEngine';
 import { supabase } from '../supabaseClient';
+import { normalizeRole } from '../constants/Roles';
+import { userClusters } from '../constants/clusters';
 
 const AUTOSAVE_DELAY_MS = 1500;
 
 const norm = (v) => String(v ?? '').trim().toLowerCase();
+
+const isFailedAnswer = (question, answer) => {
+  if (!answer || answer.na) return false;
+  return isNegativeAnswer(question, answer.value);
+};
+
+const buildAction = ({ auditId, audit, question, answer, responseId, currentUser, selectedActionOwner }) => ({
+  action_id: `ACT-${auditId}-${question.question_id}`,
+  audit_id: auditId,
+  response_id: responseId,
+  location_id: audit.location_id || 'All Locations',
+  action_owner_id: selectedActionOwner?.user_id || null,
+  owner_user_id: selectedActionOwner?.user_id || null,
+  question_id: question.question_id,
+  action_title: question.question_text || 'Critical audit failure',
+  action_description: question.instructions || question.question_text || 'Corrective action required for critical audit failure.',
+  priority: 'CRITICAL',
+  finding: answer.value == null ? '' : String(Array.isArray(answer.value) ? answer.value.join(', ') : answer.value),
+  risk_category: question.risk_category || 'General',
+  mitigation: '',
+  closure_comment: null,
+  closure_evidence_drive_id: null,
+  due_date: audit.due_date || null,
+  status: 'OPEN',
+  root_cause: null,
+  created_by: currentUser?.user_id || null,
+  closed_at: null,
+  verification_status: 'PENDING_VERIFICATION',
+  verified_by: null,
+  verified_at: null,
+  verification_comment: null,
+  r_audit_required: false,
+  re_audit_id: null,
+  question_text: question.question_text || '',
+  title: question.question_text || 'Critical audit failure',
+  description: question.instructions || question.question_text || 'Corrective action required for critical audit failure.',
+  owner_email: selectedActionOwner?.email || null,
+  created_at: new Date().toISOString(),
+  updated_at: new Date().toISOString(),
+  accepted_at: null,
+  verification_requested_at: null,
+  rejection_comment: null
+});
 
 const parseBarcodeConfig = (cfg) => {
   if (!cfg) return {};
@@ -121,6 +171,12 @@ export default function AuditRunnerView({ assignment, template, currentUser, onE
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [submitError, setSubmitError] = useState('');
+  const [auditCluster, setAuditCluster] = useState(assignment.cluster || '');
+  const [auditManagers, setAuditManagers] = useState([]);
+  const [actionOwners, setActionOwners] = useState([]);
+  const [selectedAuditManagerId, setSelectedAuditManagerId] = useState('');
+  const [selectedActionOwnerId, setSelectedActionOwnerId] = useState('');
+  const [reviewUsersError, setReviewUsersError] = useState('');
   const [problems, setProblems] = useState([]);
   const [showProblems, setShowProblems] = useState(false);
 
@@ -134,6 +190,55 @@ export default function AuditRunnerView({ assignment, template, currentUser, onE
     const list = [...(template?.sections || [])];
     return list.sort((a, b) => (Number(a.section_order) || 0) - (Number(b.section_order) || 0));
   }, [template]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadReviewUsers = async () => {
+      try {
+        const { cluster } = await resolveLocationFields(supabase, assignment, template);
+        const resolvedCluster = String(assignment.cluster || cluster || '').trim();
+        if (cancelled) return;
+
+        setAuditCluster(resolvedCluster);
+        if (!resolvedCluster) {
+          setAuditManagers([]);
+          setActionOwners([]);
+          setReviewUsersError('Could not determine the audit cluster.');
+          return;
+        }
+
+        const { data, error } = await supabase
+          .from('users')
+          .select('user_id, full_name, email, role, home_cluster, additional_cluster, active')
+          .eq('active', true);
+        if (error) throw error;
+        if (cancelled) return;
+
+        const clusterKey = resolvedCluster.toLowerCase();
+        const sharesCluster = (user) => userClusters(user).some(
+          (cluster) => cluster.toLowerCase() === clusterKey
+        );
+        const managers = (data || []).filter(
+          (user) => normalizeRole(user.role) === 'AUDIT_MANAGER' && sharesCluster(user)
+        );
+        const owners = (data || []).filter(
+          (user) => normalizeRole(user.role) === 'ACTION_OWNER' && sharesCluster(user)
+        );
+
+        setAuditManagers(managers);
+        setActionOwners(owners);
+        setReviewUsersError('');
+        setSelectedAuditManagerId(managers.length === 1 ? managers[0].user_id : '');
+        setSelectedActionOwnerId(owners.length === 1 ? owners[0].user_id : '');
+      } catch (error) {
+        if (!cancelled) setReviewUsersError(error.message || 'Could not load managers and action owners.');
+      }
+    };
+
+    loadReviewUsers();
+    return () => { cancelled = true; };
+  }, [assignment, template]);
 
   const answersRef = useRef(answers);
   answersRef.current = answers;
@@ -399,6 +504,15 @@ export default function AuditRunnerView({ assignment, template, currentUser, onE
   const handleFinalSubmit = async () => {
     if (isSubmittingRef.current || submitting || submitted) return;
 
+    if (!selectedAuditManagerId) {
+      setSubmitError('Select an Audit Manager before submitting.');
+      return;
+    }
+    if (score.criticalFailures > 0 && !selectedActionOwnerId) {
+      setSubmitError('Select an Action Owner for the corrective action.');
+      return;
+    }
+
     isSubmittingRef.current = true;
     setSubmitting(true);
     setSubmitted(true);
@@ -504,11 +618,65 @@ export default function AuditRunnerView({ assignment, template, currentUser, onE
       auditor_id: currentUser?.user_id || '',
       auditor_name: currentUser?.name || '',
       auditor_email: currentUser?.email || '',
+      audit_manager_id: selectedAuditManagerId,
       started_at: new Date().toISOString(),
       created_at: new Date().toISOString(),
       answers,
       summary: score
     };
+
+    const responsesToInsert = [];
+    const actionsToInsert = [];
+    sections.forEach(sec => {
+      (sec.questions || []).forEach(q => {
+        const ans = answers[q.question_id];
+        if (!ans) return;
+
+        const responseId = `RES-${auditId}-${q.question_id}`;
+        const failed = isFailedAnswer(q, ans);
+        let valStr = ans.value;
+        if (Array.isArray(valStr)) valStr = valStr.join(', ');
+
+        responsesToInsert.push({
+          response_id: responseId,
+          audit_id: auditId,
+          question_id: q.question_id,
+          template_id: template?.template_id || assignment.template_id,
+          section_id: sec.section_id || '',
+          section_name: sec.section_name || 'General',
+          question_text: q.question_text || '',
+          response_type: q.response_type || 'TEXT',
+          response_value: ans.na ? 'N/A' : (valStr || ''),
+          score: 0,
+          max_score: q.points || 0,
+          is_failure: failed,
+          critical_question: parseBool(q.critical_question),
+          risk_category: q.risk_category || 'General',
+          comment: ans.comment || '',
+          answered_by: currentUser?.user_id,
+          answered_at: new Date().toISOString(),
+          evidence_uris: ans.evidence || [],
+          evidence_count: (ans.evidence || []).length
+        });
+
+        if (failed && parseBool(q.critical_question)) {
+          const selectedActionOwner = actionOwners.find(
+            (owner) => owner.user_id === selectedActionOwnerId
+          ) || null;
+          actionsToInsert.push(buildAction({
+            auditId,
+            audit: payload,
+            question: q,
+            answer: ans,
+            responseId,
+            currentUser,
+            selectedActionOwner
+          }));
+        }
+      });
+    });
+
+    payload.actions = actionsToInsert;
 
     if (!navigator.onLine) {
       const queue = JSON.parse(localStorage.getItem('offline_sync_queue') || '[]');
@@ -541,6 +709,7 @@ export default function AuditRunnerView({ assignment, template, currentUser, onE
           answered_questions: score.answered || 0,
           total_questions: score.total || 0,
           result: (score.percent >= 75 && score.criticalFailures === 0) ? 'PASSED' : 'FAILED',
+          audit_manager_id: selectedAuditManagerId,
         })
         .eq('audit_id', auditId);
 
@@ -548,44 +717,19 @@ export default function AuditRunnerView({ assignment, template, currentUser, onE
 
       await supabase.from('responses').delete().eq('audit_id', auditId);
 
-      const responsesToInsert = [];
-      sections.forEach(sec => {
-        (sec.questions || []).forEach(q => {
-          const ans = answers[q.question_id];
-          if (!ans) return;
-
-          let valStr = ans.value;
-          if (Array.isArray(valStr)) valStr = valStr.join(', ');
-
-          responsesToInsert.push({
-            response_id: `RES-${auditId}-${q.question_id}`,
-            audit_id: auditId,
-            question_id: q.question_id,
-            template_id: template?.template_id || assignment.template_id,
-            section_id: sec.section_id || '',
-            section_name: sec.section_name || 'General',
-            question_text: q.question_text || '',
-            response_type: q.response_type || 'TEXT',
-            response_value: ans.na ? 'N/A' : (valStr || ''),
-            score: 0,
-            max_score: q.points || 0,
-            is_failure: ans.na ? false : (q.failure_response && q.failure_response !== 'NONE'),
-            critical_question: q.critical_question || false,
-            risk_category: q.risk_category || 'General',
-            comment: ans.comment || '',
-            answered_by: currentUser?.user_id,
-            answered_at: new Date().toISOString(),
-            evidence_uris: ans.evidence || [],
-            evidence_count: (ans.evidence || []).length
-          });
-        });
-      });
-
       if (responsesToInsert.length > 0) {
         const { error: responsesError } = await supabase
           .from('responses')
           .insert(responsesToInsert);
         if (responsesError) throw responsesError;
+      }
+
+      if (actionsToInsert.length > 0) {
+        const { error: actionsError } = await supabase
+          .from('actions')
+          .upsert(actionsToInsert, { onConflict: 'action_id' });
+
+        if (actionsError) throw actionsError;
       }
 
       await supabase.from('audit_drafts').delete().eq('audit_id', auditId);
@@ -710,6 +854,65 @@ export default function AuditRunnerView({ assignment, template, currentUser, onE
             )}
           </div>
         </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label htmlFor="audit-manager" className="block text-xs font-semibold text-slate-700 mb-1.5">
+              Audit Manager <span className="text-rose-500">*</span>
+            </label>
+            <select
+              id="audit-manager"
+              value={selectedAuditManagerId}
+              onChange={(event) => setSelectedAuditManagerId(event.target.value)}
+              required
+              disabled={auditManagers.length === 0}
+              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 disabled:bg-slate-50"
+            >
+              <option value="">
+                {auditManagers.length ? 'Select an Audit Manager' : `No Audit Managers found for ${auditCluster || 'this cluster'}`}
+              </option>
+              {auditManagers.map((manager) => (
+                <option key={manager.user_id} value={manager.user_id}>
+                  {manager.full_name || manager.email} — {userClusters(manager).join(', ')}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {score.criticalFailures > 0 && (
+            <div>
+              <label htmlFor="action-owner" className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Action Owner <span className="text-rose-500">*</span>
+              </label>
+              <select
+                id="action-owner"
+                value={selectedActionOwnerId}
+                onChange={(event) => setSelectedActionOwnerId(event.target.value)}
+                required
+                disabled={actionOwners.length === 0}
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 disabled:bg-slate-50"
+              >
+                <option value="">
+                  {actionOwners.length ? 'Select an Action Owner' : `No Action Owners found for ${auditCluster || 'this cluster'}`}
+                </option>
+                {actionOwners.map((owner) => (
+                  <option key={owner.user_id} value={owner.user_id}>
+                    {owner.full_name || owner.email} — {userClusters(owner).join(', ')}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-[11px] text-slate-500">
+                This owner will be assigned to the corrective action(s) created from critical failures.
+              </p>
+            </div>
+          )}
+        </div>
+
+        {reviewUsersError && (
+          <div className="rounded-2xl border border-rose-200 bg-rose-50 p-3 text-xs font-semibold text-rose-700">
+            {reviewUsersError}
+          </div>
+        )}
 
         {submitError && (
           <div className="flex items-center gap-2 p-3 bg-rose-50 border border-rose-200/80 rounded-2xl text-rose-600 text-xs font-semibold">

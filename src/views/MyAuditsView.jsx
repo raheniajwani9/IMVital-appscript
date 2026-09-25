@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import {
-  ClipboardCheck, MapPin, Calendar, Clock, Play, RotateCw, CheckCircle2,
-  AlertTriangle, Search, ChevronLeft, ChevronRight, ListChecks, Timer
+  ClipboardCheck, Play, RotateCw, CheckCircle2,
+  AlertTriangle, Search, ChevronLeft, ChevronRight, Timer
 } from 'lucide-react';
 
 const ITEMS_PER_PAGE = 8;
@@ -36,20 +36,31 @@ const formatDate = (dateString) => {
   }
 };
 
+const getTemplate = (templates, item) =>
+  templates.find(
+    (t) =>
+      String(t.template_id) === String(item.template_id) ||
+      String(t.template_code) === String(item.template_id)
+  );
+
+const getAuditName = (item, templates, template = getTemplate(templates, item)) => {
+  const storedName = String(item.template_name || '').trim();
+  const isGeneratedTemplateId = storedName.startsWith('TMP-');
+
+  return template?.template_name ||
+    (!isGeneratedTemplateId && storedName) ||
+    item.template_id ||
+    'Untitled Audit';
+};
+
 export default function MyAuditsView({ assignments = [], audits = [], templates = [], currentUser, onStartAudit, onRefreshData }) {
+  console.log(assignments);
   const auditList = assignments.length > 0 ? assignments : audits;
 
   const [searchQuery, setSearchQuery] = useState('');
   const [filter, setFilter] = useState('ALL');
   const [priorityFilter, setPriorityFilter] = useState('ALL'); 
   const [currentPage, setCurrentPage] = useState(1);
-
-  const getTemplate = (item) =>
-    templates.find(
-      (t) =>
-        String(t.template_id) === String(item.template_id) ||
-        String(t.template_code) === String(item.template_id)
-    );
 
   const stats = useMemo(() => {
     const pending = auditList.filter((a) => (a.status || a.audit_status) === 'SCHEDULED' || (a.status || a.audit_status) === 'NOT_STARTED').length;
@@ -77,7 +88,7 @@ export default function MyAuditsView({ assignments = [], audits = [], templates 
 
       // Search Query
       if (!q) return true;
-      return [a.template_name, a.location_id, a.schedule_id, a.priority, a.frequency]
+      return [a.audit_id, a.open_audit_id, getAuditName(a, templates), a.location_id, a.schedule_id, a.priority, a.frequency]
         .map((v) => String(v || '').toLowerCase())
         .some((v) => v.includes(q));
     });
@@ -89,7 +100,7 @@ export default function MyAuditsView({ assignments = [], audits = [], templates 
       return dateB - dateA; // Descending order
     });
 
-  }, [auditList, filter, priorityFilter, searchQuery]);
+  }, [auditList, filter, priorityFilter, searchQuery, templates]);
 
   const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE) || 1;
   const paginated = useMemo(() => {
@@ -143,7 +154,7 @@ export default function MyAuditsView({ assignments = [], audits = [], templates 
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
           <input
             type="text"
-            placeholder="Search by checklist, store, or priority..."
+            placeholder="Search by audit ID, checklist, store, or priority..."
             value={searchQuery}
             onChange={(e) => {
               setSearchQuery(e.target.value);
@@ -188,7 +199,7 @@ export default function MyAuditsView({ assignments = [], audits = [], templates 
         </div>
       </div>
 
-      {/* Assignment cards */}
+      {/* Assignment table */}
       {auditList.length === 0 ? (
         <div className="bg-white p-12 rounded-3xl border border-slate-200/80 text-center space-y-3">
           <ClipboardCheck className="w-10 h-10 text-slate-300 mx-auto" />
@@ -204,9 +215,18 @@ export default function MyAuditsView({ assignments = [], audits = [], templates 
           <p className="text-xs text-slate-400">Try a different search or filter.</p>
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[1150px] border-collapse text-left text-xs">
+              <thead className="bg-slate-50">
+                <tr className="border-b border-slate-200 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                  <th className="px-4 py-3">Audit ID</th><th className="px-4 py-3">Audit name</th><th className="px-4 py-3">Location</th><th className="px-4 py-3">Due date</th><th className="px-4 py-3">Frequency</th><th className="px-4 py-3">Priority</th><th className="px-4 py-3">Status</th><th className="px-4 py-3 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
           {paginated.map((assignment) => {
-            const template = getTemplate(assignment);
+            const template = getTemplate(templates, assignment);
+            const auditName = getAuditName(assignment, templates, template);
             const currentStatus = assignment.status || assignment.audit_status || 'NOT_STARTED';
             const status = STATUS_STYLES[currentStatus] || STATUS_STYLES.NOT_STARTED;
             
@@ -218,27 +238,28 @@ export default function MyAuditsView({ assignments = [], audits = [], templates 
             const missingTemplate = !template || !(template.sections || []).length;
 
             return (
-              <div
+              <tr
                 key={assignment.schedule_id || assignment.audit_id}
-                className={`bg-white rounded-2xl border shadow-sm p-5 flex flex-col lg:flex-row lg:items-center gap-4 transition-all ${
-                  isOverdue ? 'border-rose-200' : 'border-slate-200/80'
-                }`}
+                className={`align-top transition-colors hover:bg-slate-50 ${isOverdue ? 'bg-rose-50/30' : ''}`}
               >
-                <div className="flex-1 min-w-0 space-y-2">
-                  <div className="flex flex-wrap items-center gap-2">
+                <td className="whitespace-nowrap px-4 py-4 font-mono text-[11px] text-slate-600">{assignment.open_audit_id || assignment.audit_id || 'Not started'}</td>
+                <td className="max-w-[240px] px-4 py-4">
+                  <div className="truncate font-bold text-slate-900">{auditName}</div>
+                  <div className="mt-1 text-[10px] text-slate-500">{(template?.questions_count ?? assignment.questions_count) || 0} questions{Number(template?.estimated_minutes || assignment.estimated_minutes) > 0 ? ` · ~${template?.estimated_minutes || assignment.estimated_minutes} min` : ''}</div>
+                  {isSubmitted && assignment.last_submitted_at && <div className="mt-1 text-[10px] font-bold text-emerald-600">Last submitted {formatDate(assignment.last_submitted_at)}{assignment.submission_count > 1 && ` · ${assignment.submission_count} submissions`}</div>}
+                </td>
+                <td className="px-4 py-4 text-slate-700">{assignment.location_id || 'All Locations'}</td>
+                <td className="whitespace-nowrap px-4 py-4 text-slate-600">{formatDate(assignment.due_date)}</td>
+                <td className="px-4 py-4 text-slate-600">{assignment.frequency || 'ONE_TIME'}</td>
+                <td className="px-4 py-4">
+                  <span className={`rounded-md px-2 py-1 text-[10px] font-bold uppercase ${assignment.priority === 'CRITICAL' || assignment.priority === 'HIGH' ? 'border border-rose-200 bg-rose-50 text-rose-600' : 'bg-slate-100 text-slate-600'}`}>{assignment.priority || 'MEDIUM'}</span>
+                </td>
+                <td className="px-4 py-4">
+                  <div className="flex flex-wrap gap-1.5">
                     <span
                       className={`px-2 py-0.5 rounded-md border text-[9px] font-bold uppercase ${status.className}`}
                     >
                       {status.label}
-                    </span>
-                    <span
-                      className={`px-2 py-0.5 rounded-md text-[9px] font-bold uppercase ${
-                        assignment.priority === 'CRITICAL' || assignment.priority === 'HIGH'
-                          ? 'bg-rose-50 text-rose-600 border border-rose-200'
-                          : 'bg-slate-100 text-slate-600'
-                      }`}
-                    >
-                      {assignment.priority || 'MEDIUM'}
                     </span>
                     {isOverdue && (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-rose-600 text-white text-[9px] font-bold uppercase">
@@ -246,42 +267,8 @@ export default function MyAuditsView({ assignments = [], audits = [], templates 
                       </span>
                     )}
                   </div>
-
-                  <div className="text-sm font-bold text-slate-900 truncate">
-                    {assignment.template_name || assignment.template_id}
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] font-semibold text-slate-500">
-                    <span className="flex items-center gap-1.5">
-                      <MapPin className="w-3.5 h-3.5 text-slate-400" /> {assignment.location_id || 'All Locations'}
-                    </span>
-                    <span className="flex items-center gap-1.5">
-                      <Calendar className="w-3.5 h-3.5 text-slate-400" /> Due {formatDate(assignment.due_date)}
-                    </span>
-                    <span className="flex items-center gap-1.5">
-                      <Clock className="w-3.5 h-3.5 text-slate-400" /> {assignment.frequency || 'ONE_TIME'}
-                    </span>
-                    <span className="flex items-center gap-1.5">
-                      <ListChecks className="w-3.5 h-3.5 text-slate-400" />
-                      {(template?.questions_count ?? assignment.questions_count) || 0} questions
-                    </span>
-                    {Number(template?.estimated_minutes || assignment.estimated_minutes) > 0 && (
-                      <span className="flex items-center gap-1.5">
-                        <Timer className="w-3.5 h-3.5 text-slate-400" />~
-                        {template?.estimated_minutes || assignment.estimated_minutes} min
-                      </span>
-                    )}
-                  </div>
-
-                  {isSubmitted && assignment.last_submitted_at && (
-                    <div className="text-[10px] font-bold text-emerald-600">
-                      Last submitted {formatDate(assignment.last_submitted_at)}
-                      {assignment.submission_count > 1 && ` · ${assignment.submission_count} submissions`}
-                    </div>
-                  )}
-                </div>
-
-                <div className="shrink-0">
+                </td>
+                <td className="px-4 py-4 text-right">
                   {missingTemplate ? (
                     <span className="text-[10px] font-bold text-amber-600 uppercase">Checklist unavailable</span>
                   ) : (
@@ -301,10 +288,13 @@ export default function MyAuditsView({ assignments = [], audits = [], templates 
                       {isResume ? 'Resume Audit' : isSubmitted ? 'Completed' : 'Start Audit'}
                     </button>
                   )}
-                </div>
-              </div>
+                </td>
+              </tr>
             );
           })}
+              </tbody>
+            </table>
+          </div>
 
           {/* Pagination */}
           {totalPages > 1 && (

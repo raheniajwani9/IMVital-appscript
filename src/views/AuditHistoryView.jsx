@@ -39,10 +39,56 @@ const formatDate = (dateString) => {
   }
 };
 
-export default function AuditHistoryView({ audits = [] }) {
+const getAuditName = (a, templates = []) => {
+  const tpl = templates.find(t =>
+    String(t.template_id) === String(a.template_id) ||
+    String(t.template_code) === String(a.template_id)
+  );
+  const storedName = String(a.template_name || '').trim();
+  const isGeneratedTemplateId = storedName.startsWith('TMP-');
+  return tpl?.template_name ||
+    (!isGeneratedTemplateId && storedName) ||
+    a.template_id ||
+    'Untitled Audit';
+};
+
+const normalize = (value) => String(value || '').trim().toLowerCase();
+
+const getAuditCluster = (audit, locations = []) => {
+  const directCluster =
+    audit.cluster_name || audit.cluster || audit.location_cluster || audit.region;
+  if (directCluster) return String(directCluster).trim();
+
+  const auditLocation = normalize(audit.location_id || audit.pod_id);
+  if (!auditLocation) return '';
+
+  const location = locations.find((item) => {
+    const identifiers = [
+      item.pod_id,
+      item.location_id,
+      item['Location ID'],
+      item.store_id,
+      item['Store Name'],
+      item.store_name,
+      item.location_name
+    ];
+    return identifiers.some((value) => normalize(value) === auditLocation);
+  });
+
+  return String(
+    location?.cluster ||
+    location?.Cluster ||
+    location?.cluster_name ||
+    location?.['Cluster Name'] ||
+    location?.home_cluster ||
+    ''
+  ).trim();
+};
+
+export default function AuditHistoryView({ audits = [], templates = [], locations = [] }) {
   const [searchQuery, setSearchQuery] = useState('');
-  // NEW: State for the status dropdown
   const [statusFilter, setStatusFilter] = useState('ALL');
+  const [clusterFilter, setClusterFilter] = useState('ALL');
   const [currentPage, setCurrentPage] = useState(1);
   const [report, setReport] = useState(null); // { audit_id, template_name }
 
@@ -51,6 +97,15 @@ export default function AuditHistoryView({ audits = [] }) {
       [...audits].sort((a, b) => String(b.submitted_at || b.started_at || '').localeCompare(String(a.submitted_at || a.started_at || ''))),
     [audits]
   );
+
+  const clusterOptions = useMemo(() => {
+    const clusters = new Map();
+    audits.forEach((audit) => {
+      const cluster = getAuditCluster(audit, locations);
+      if (cluster) clusters.set(normalize(cluster), cluster);
+    });
+    return [...clusters.values()].sort((a, b) => a.localeCompare(b));
+  }, [audits, locations]);
 
   const filtered = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -62,13 +117,18 @@ export default function AuditHistoryView({ audits = [] }) {
         return false;
       }
 
+      const cluster = getAuditCluster(a, locations);
+      if (clusterFilter !== 'ALL' && normalize(cluster) !== normalize(clusterFilter)) {
+        return false;
+      }
+
       // 2. Search Query Check
       if (!q) return true;
-      return [a.template_name, a.location_id, a.audit_id, a.status]
+      return [a.template_name, a.location_id, a.audit_id, a.status, cluster]
         .map((v) => String(v || '').toLowerCase())
         .some((v) => v.includes(q));
     });
-  }, [allAudits, searchQuery, statusFilter]);
+  }, [allAudits, searchQuery, statusFilter, clusterFilter, locations]);
 
   const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE) || 1;
   const paginated = useMemo(() => {
@@ -102,7 +162,7 @@ export default function AuditHistoryView({ audits = [] }) {
           />
         </div>
         
-        <div className="flex items-center gap-4 w-full md:w-auto">
+        <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
           {/* NEW: Status Dropdown */}
           <select
             value={statusFilter}
@@ -117,6 +177,21 @@ export default function AuditHistoryView({ audits = [] }) {
             <option value="SUBMITTED">Submitted</option>
             <option value="APPROVED">Approved</option>
             <option value="REJECTED">Rejected</option>
+          </select>
+
+          <select
+            value={clusterFilter}
+            onChange={(e) => {
+              setClusterFilter(e.target.value);
+              setCurrentPage(1);
+            }}
+            aria-label="Filter audits by cluster"
+            className="bg-white border border-slate-200/80 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500/20 cursor-pointer hover:bg-slate-50"
+          >
+            <option value="ALL">All clusters</option>
+            {clusterOptions.map((cluster) => (
+              <option key={cluster} value={cluster}>{cluster}</option>
+            ))}
           </select>
 
           <div className="text-xs font-bold text-slate-500 whitespace-nowrap">
@@ -141,6 +216,7 @@ export default function AuditHistoryView({ audits = [] }) {
               <tr className="bg-slate-50/80 border-b border-slate-200/80 text-slate-500 font-bold uppercase text-[10px] tracking-wider">
                 <th className="p-4">Checklist</th>
                 <th className="p-4">Location</th>
+                <th className="p-4">Cluster</th>
                 <th className="p-4">Date</th>
                 <th className="p-4">Answered</th>
                 <th className="p-4">Score</th>
@@ -157,13 +233,16 @@ export default function AuditHistoryView({ audits = [] }) {
                 return (
                   <tr key={audit.audit_id} className="hover:bg-slate-50/50 transition-colors">
                     <td className="p-4">
-                      <div className="font-bold text-slate-900 text-xs">{audit.template_name || audit.template_id}</div>
+                      <div className="font-bold text-slate-900 text-xs">{getAuditName(audit, templates)}</div>
                       <div className="text-[10px] text-slate-400 font-mono">{audit.audit_id}</div>
                     </td>
                     <td className="p-4">
                       <span className="flex items-center gap-1.5 text-slate-700">
                         <MapPin className="w-3.5 h-3.5 text-slate-400" /> {audit.location_id || 'All Locations'}
                       </span>
+                    </td>
+                    <td className="p-4 text-slate-600">
+                      {getAuditCluster(audit, locations) || 'N/A'}
                     </td>
                     <td className="p-4 font-bold text-slate-600">
                       {formatDate(audit.submitted_at || audit.started_at || audit.due_date)}
@@ -214,7 +293,7 @@ export default function AuditHistoryView({ audits = [] }) {
                         onClick={() =>
                           setReport({
                             audit_id: audit.audit_id,
-                            template_name: audit.template_name || audit.template_id
+                            template_name: getAuditName(audit, templates)
                           })
                         }
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 text-slate-700 text-[11px] font-bold hover:bg-slate-50 hover:border-blue-300 hover:text-blue-700 transition-colors cursor-pointer"
