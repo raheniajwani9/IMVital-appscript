@@ -147,9 +147,12 @@ export default function AuditorWorkspace({ currentUser, onLogout }) {
       // FIX: Filter matching audits, and prioritize SUBMITTED if duplicates exist
       const matchingAudits = data.audits.filter((a) => a.schedule_id === assignment.schedule_id);
       const isSubmitted = matchingAudits.some(a => a.status === 'SUBMITTED');
+      const linkedAudit = matchingAudits.find((audit) => audit.status === 'SUBMITTED') || matchingAudits[0];
       
       return {
         ...assignment,
+        open_audit_id: linkedAudit?.audit_id || assignment.open_audit_id,
+        audit_id: assignment.audit_id || linkedAudit?.audit_id,
         audit_status: isSubmitted ? 'SUBMITTED' : (matchingAudits[0]?.status || 'SCHEDULED')
       };
     });
