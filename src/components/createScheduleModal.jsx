@@ -109,7 +109,7 @@ export default function CreateScheduleModal({
       assigned_auditor_email: selected ? selected.email || '' : ''
     }));
 
-    setScope({ ...EMPTY_SCOPE, clusters: userClusters(selected) });
+    setScope(EMPTY_SCOPE);
   };
 
  const handleSubmit = async (event) => {
