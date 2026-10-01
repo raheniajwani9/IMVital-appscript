@@ -1,18 +1,11 @@
 import React, { useMemo, useState } from 'react';
 import { Search, Layers, Building2, Store, X, AlertTriangle, Check } from 'lucide-react';
-import {
-  citiesForClusters,
-  podsForScope,
-  podLabel,
-  podKey,
-  keepAllowed
-} from '../constants/clusters';
+import {citiesForClusters,podsForScope,podLabel,podKey,keepAllowed} from '../constants/clusters';
 
 const lower = (v) => String(v ?? '').trim().toLowerCase();
 const has = (list, v) => list.some((x) => lower(x) === lower(v));
 const toggle = (list, v) => (has(list, v) ? list.filter((x) => lower(x) !== lower(v)) : [...list, v]);
 
-/** Small pill toggle, used for the auditor's clusters. */
 function Chip({ active, children, onClick }) {
   return (
     <button
@@ -30,7 +23,6 @@ function Chip({ active, children, onClick }) {
   );
 }
 
-/** Scrollable checkbox list with select-all / clear over whatever is visible. */
 function CheckList({ items, selected, onToggle, onSelectAll, onClear, empty, renderItem }) {
   if (!items.length) {
     return (
@@ -80,14 +72,6 @@ function CheckList({ items, selected, onToggle, onSelectAll, onClear, empty, ren
   );
 }
 
-/**
- * Cascading, multi-select audit scope: Cluster(s) >> City(ies) >> POD(s).
- *
- * Cluster options are the ones the chosen auditor actually covers
- * (home_cluster + additional_cluster), so the scope can never fall outside
- * their remit. Fully controlled — the parent owns
- * { clusters, cities, pods } and gets the whole triple back on every change.
- */
 export default function PodScopePicker({
   locations = [],
   allowedClusters = [],
@@ -226,8 +210,7 @@ export default function PodScopePicker({
         )}
       </div>
 
-      {/* 2 — City, multi-select within the chosen clusters */}
-      <div>
+      {clusters.length > 0 && <div>
         <label className="mb-1.5 flex items-center gap-1.5 text-[10px] font-bold uppercase text-slate-500">
           <Building2 className="h-3 w-3" />
           City
@@ -262,10 +245,10 @@ export default function PodScopePicker({
             sub: `${podCountByCity[lower(cityName)] || 0} PODs`
           })}
         />
-      </div>
+      </div>}
 
       {/* 3 — POD, multi-select within the chosen cities */}
-      <div>
+      {cities.length > 0 && <div>
         <label className="mb-1.5 flex items-center gap-1.5 text-[10px] font-bold uppercase text-slate-500">
           <Store className="h-3 w-3" />
           PODs
@@ -321,7 +304,7 @@ export default function PodScopePicker({
             </span>
           </div>
         )}
-      </div>
+      </div>}
     </div>
   );
 }

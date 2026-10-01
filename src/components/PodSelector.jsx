@@ -70,8 +70,7 @@ export default function PodSelector({
     emit({
       pod_id: pod?.pod_id || '',
       location_id: next,
-      city: pod?.city || city,
-      cluster: pod?.cluster || cluster
+      city: pod?.city || city
     });
   };
 

@@ -17,16 +17,18 @@ export default function UpdateScheduleModal({
   onClose,
   onUpdated
 }) {
-  // Rows created before the cluster/city columns existed — recover from the master
-  const matchedPod = useMemo(
-    () =>
-      locations.find(
-        (l) =>
-          String(l.location_id).toLowerCase() ===
-          String(schedule.location_id || '').trim().toLowerCase()
-      ),
-    [locations, schedule.location_id]
-  );
+  const matchedPod = useMemo(() =>{
+    const savedLocation = String(schedule.location_id || '').trim().toLowerCase();
+    
+    return locations.find((location) =>
+    [
+      location.location_id,
+      location.pod_id,
+      location['Location ID'],
+
+    ].some((id) => String(id || '').trim().toLowerCase() === savedLocation)
+    );
+},[locations, schedule.location_id]);
 
   const [formData, setFormData] = useState({
     schedule_id: schedule.schedule_id,
@@ -34,15 +36,14 @@ export default function UpdateScheduleModal({
     template_name: schedule.template_name || '',
     template_version: schedule.template_version || 'v1.0',
     pod_id: schedule.pod_id || matchedPod?.pod_id || '',
-    location_id: schedule.location_id || 'All Locations',
-    city: schedule.city || matchedPod?.city || '',
-    cluster: schedule.cluster || matchedPod?.cluster || '',
+    location_id: schedule.location_id || matchedPod?.location_id || matchedPod?.['Location ID'] || 'All Locations',
+    city: schedule.city || matchedPod?.city || matchedPod?.City || '',
+    cluster: schedule.cluster || matchedPod?.cluster || matchedPod?.Cluster || '',
     frequency: schedule.frequency || 'WEEKLY',
     assigned_auditor: schedule.assigned_auditor || '',
     assigned_auditor_email: schedule.assigned_auditor_email || '',
     start_date: schedule.start_date || new Date().toISOString().split('T')[0],
-    due_date:
-      schedule.due_date || new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0],
+    due_date: schedule.due_date || new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0],
     priority: schedule.priority || 'MEDIUM',
     status: schedule.status || 'SCHEDULED',
     active: schedule.active !== undefined ? schedule.active : true,
@@ -104,7 +105,6 @@ export default function UpdateScheduleModal({
 
     const payload = { 
       template_id: formData.template_id,
-      // REMOVED template_name FROM HERE
       location_id: formData.location_id,
       city: formData.city,
       frequency: formData.frequency,
@@ -117,15 +117,12 @@ export default function UpdateScheduleModal({
     };
 
     try {
-      // 1. Update existing schedule in Supabase
       const { error: updateError } = await supabase
         .from('schedules')
         .update(payload)
         .eq('schedule_id', formData.schedule_id);
 
       if (updateError) throw updateError;
-
-      // 2. DISPATCH EMAIL NOTIFICATION FOR UPDATE
       if (formData.assigned_auditor_email) {
         try {
           await fetch('/api/send-email', {
@@ -136,7 +133,7 @@ export default function UpdateScheduleModal({
             body: JSON.stringify({
               to: formData.assigned_auditor_email,
               auditorName: formData.assigned_auditor,
-              templateName: formData.template_name, // STILL NEEDED HERE FOR THE EMAIL
+              templateName: formData.template_name,
               auditCount: 1, 
               dueDate: formData.due_date,
               priority: formData.priority,
