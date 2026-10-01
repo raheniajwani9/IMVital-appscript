@@ -85,7 +85,7 @@ export default function UsersView({ users = [], locations = [], onRefreshData })
             Role Management
           </span>
 
-          <h1 className="text-2xl sm:text-3xl font-black text-slate-900 mt-1 tracking-tight">
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
             Users & Roles
           </h1>
 

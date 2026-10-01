@@ -206,12 +206,6 @@ export default function FormsView({ templates = [], sections = [], questions = [
       <div className="shrink-0 px-4 sm:px-6 lg:px-8 pt-6 pb-4">
         <div className="flex items-center justify-between gap-4 mb-4">
           <div>
-            <div className="flex items-center gap-2 mb-1.5">
-              <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center">
-                <LayoutGrid className="w-4 h-4 text-indigo-600" />
-              </div>
-              <span className="text-xs font-semibold text-indigo-600 tracking-wider uppercase">Form Builder</span>
-            </div>
             <h1 className="text-xl lg:text-2xl font-bold text-slate-900 tracking-tight">Forms</h1>
           </div>
           <button onClick={() => setIsCreateOpen(true)} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-4 py-2.5 rounded-xl shadow-sm shadow-indigo-500/20 transition-all whitespace-nowrap shrink-0">
