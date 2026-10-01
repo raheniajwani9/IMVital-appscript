@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Plus, Calendar, MapPin, User, Clock, CheckCircle2, MoreHorizontal, Pencil, Trash2, Search, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Plus, Calendar, MapPin, User, CheckCircle2, Pencil, Trash2, Search, ChevronLeft, ChevronRight } from 'lucide-react';
 import CreateScheduleModal from '../components/createScheduleModal';
 import UpdateScheduleModal from '../components/UpdateScheduleModal';
 import DeleteScheduleModal from '../components/DeleteScheduleModal';
@@ -10,26 +10,19 @@ export default function SchedulesView({ schedules = [], templates = [], location
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState(null);
   const [deletingSchedule, setDeletingSchedule] = useState(null);
-  const [activeMenuId, setActiveMenuId] = useState(null);
 
   // Search & Pagination States
   const [searchQuery, setSearchQuery] = useState('');
+  const [dateSort, setDateSort] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
-
-  const toggleMenu = (e, id) => {
-    e.stopPropagation();
-    setActiveMenuId(activeMenuId === id ? null : id);
-  };
 
   const handleEdit = (e, sch) => {
     e.stopPropagation();
-    setActiveMenuId(null);
     setEditingSchedule(sch);
   };
 
   const handleDelete = (e, sch) => {
     e.stopPropagation();
-    setActiveMenuId(null);
     setDeletingSchedule(sch);
   };
 
@@ -41,12 +34,11 @@ export default function SchedulesView({ schedules = [], templates = [], location
     return matched?.template_name || matched?.template_code || sch.template_id || 'Standard Checklist';
   };
 
-  // Filter schedules based on search query
+  // Search schedules, then optionally order them by due date.
   const filteredSchedules = useMemo(() => {
-    if (!searchQuery.trim()) return schedules;
     const q = searchQuery.toLowerCase();
-
-    return schedules.filter((sch) => {
+    const result = schedules.filter((sch) => {
+      if (!q) return true;
       const title = getTemplateTitle(sch).toLowerCase();
       const schId = String(sch.schedule_id || '').toLowerCase();
       const location = String(sch.location_id || '').toLowerCase();
@@ -55,7 +47,16 @@ export default function SchedulesView({ schedules = [], templates = [], location
 
       return title.includes(q) || schId.includes(q) || location.includes(q) || auditor.includes(q) || email.includes(q);
     });
-  }, [schedules, searchQuery, templates]);
+    if (dateSort !== 'all') {
+      const direction = dateSort === 'ascending' ? 1 : -1;
+      result.sort((a, b) => {
+        const dateA = Date.parse(a.due_date || '') || 0;
+        const dateB = Date.parse(b.due_date || '') || 0;
+        return (dateA - dateB) * direction;
+      });
+    }
+    return result;
+  }, [schedules, searchQuery, templates, dateSort]);
 
   // Pagination Logic
   const totalPages = Math.ceil(filteredSchedules.length / ITEMS_PER_PAGE) || 1;
@@ -70,12 +71,12 @@ export default function SchedulesView({ schedules = [], templates = [], location
   };
 
   return (
-    <div className="space-y-6 font-sans text-slate-800" onClick={() => setActiveMenuId(null)}>
+      <div className="space-y-6 font-sans text-slate-800">
       {/* Header Section */}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
           <span className="text-[11px] font-bold text-blue-600 tracking-wider uppercase">Automated Audits</span>
-          <h1 className="text-2xl sm:text-3xl font-black text-slate-900 mt-1 tracking-tight">Audit Schedules</h1>
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Audit Schedules</h1>
           <p className="text-sm text-slate-500 mt-1">Configure recurring audit routines across operational locations.</p>
         </div>
         <button
@@ -87,7 +88,7 @@ export default function SchedulesView({ schedules = [], templates = [], location
       </div>
 
       {/* Search Bar Controls */}
-      <div className="flex items-center justify-between gap-4 bg-white p-3 rounded-2xl border border-slate-200/80 shadow-sm">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3 rounded-2xl border border-slate-200/80 shadow-sm">
         <div className="relative flex-1 max-w-md">
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
           <input
@@ -98,8 +99,22 @@ export default function SchedulesView({ schedules = [], templates = [], location
             className="w-full bg-slate-50 border border-slate-200/80 rounded-xl pl-9 pr-4 py-1.5 text-xs font-medium text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
           />
         </div>
-        <div className="text-xs font-bold text-slate-500 pr-2">
-          Total Records: <span className="text-slate-900 font-extrabold">{filteredSchedules.length}</span>
+        <div className="flex items-center gap-3 sm:gap-4">
+          <label className="flex items-center gap-2 text-xs font-bold text-slate-500 whitespace-nowrap">
+            Due date
+            <select
+              value={dateSort}
+              onChange={(event) => { setDateSort(event.target.value); setCurrentPage(1); }}
+              className="rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+            >
+              <option value="all">All dates</option>
+              <option value="ascending">Ascending</option>
+              <option value="descending">Descending</option>
+            </select>
+          </label>
+          <div className="text-xs font-bold text-slate-500 pr-2 whitespace-nowrap">
+            Total: <span className="text-slate-900 font-extrabold">{filteredSchedules.length}</span>
+          </div>
         </div>
       </div>
 
@@ -131,7 +146,6 @@ export default function SchedulesView({ schedules = [], templates = [], location
                 <th className="p-4">Location</th>
                 <th className="p-4">Frequency</th>
                 <th className="p-4">Assigned To</th>
-                <th className="p-4">Next Run</th>
                 <th className="p-4">Due Date</th>
                 <th className="p-4">Priority</th>
                 <th className="p-4">Status</th>
@@ -141,8 +155,6 @@ export default function SchedulesView({ schedules = [], templates = [], location
             <tbody className="divide-y divide-slate-100 font-medium">
               {paginatedSchedules.map((sch) => {
                 const title = getTemplateTitle(sch);
-                const isMenuOpen = activeMenuId === sch.schedule_id;
-
                 return (
                   <tr key={sch.schedule_id} className="hover:bg-slate-50/50 transition-colors">
                     <td className="p-4">
@@ -166,12 +178,6 @@ export default function SchedulesView({ schedules = [], templates = [], location
                       )}
                     </td>
                     <td className="p-4">
-                      <div className="flex items-center gap-1.5 text-slate-800 font-bold">
-                        <Clock className="w-3.5 h-3.5 text-blue-500" />
-                        <span>{sch.next_run_date || sch.start_date || 'N/A'}</span>
-                      </div>
-                    </td>
-                    <td className="p-4">
                       <div className="flex items-center gap-1.5 text-slate-600 font-bold">
                         <Calendar className="w-3.5 h-3.5 text-slate-400" />
                         <span>{sch.due_date || 'N/A'}</span>
@@ -189,30 +195,27 @@ export default function SchedulesView({ schedules = [], templates = [], location
                         <CheckCircle2 className="w-3.5 h-3.5" /> {sch.status || 'SCHEDULED'}
                       </span>
                     </td>
-                    <td className="p-4 text-right relative">
+                    <td className="p-4">
+                      <div className="flex items-center justify-end gap-1.5">
                       <button
-                        onClick={(e) => toggleMenu(e, sch.schedule_id)}
-                        className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition-colors"
+                        type="button"
+                        onClick={(e) => handleEdit(e, sch)}
+                        aria-label={`Edit schedule ${sch.schedule_id}`}
+                        title="Edit schedule"
+                        className="text-blue-600 hover:text-blue-700 p-1.5 rounded-lg hover:bg-blue-50 transition-colors"
                       >
-                        <MoreHorizontal className="w-4 h-4" />
+                        <Pencil className="w-4 h-4" />
                       </button>
-
-                      {isMenuOpen && (
-                        <div className="absolute right-4 top-10 w-32 bg-white rounded-xl border border-slate-200 shadow-lg py-1 z-20 text-left">
-                          <button
-                            onClick={(e) => handleEdit(e, sch)}
-                            className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
-                          >
-                            <Pencil className="w-3.5 h-3.5 text-blue-600" /> Edit
-                          </button>
-                          <button
-                            onClick={(e) => handleDelete(e, sch)}
-                            className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-rose-600 hover:bg-rose-50 transition-colors"
-                          >
-                            <Trash2 className="w-3.5 h-3.5 text-rose-600" /> Delete
-                          </button>
-                        </div>
-                      )}
+                      <button
+                        type="button"
+                        onClick={(e) => handleDelete(e, sch)}
+                        aria-label={`Delete schedule ${sch.schedule_id}`}
+                        title="Delete schedule"
+                        className="text-rose-600 hover:text-rose-700 p-1.5 rounded-lg hover:bg-rose-50 transition-colors"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                      </div>
                     </td>
                   </tr>
                 );
