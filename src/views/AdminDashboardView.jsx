@@ -1,11 +1,11 @@
 import React, { useMemo, useState } from 'react';
 import {
   ShieldCheck, ClipboardCheck, AlertTriangle, TrendingUp, RefreshCw, MapPin,
-  Activity, Target, Users, FileText, CalendarClock, Layers,
-  CheckCircle2, HelpCircle, ListChecks, Building2, Clock, Flame
+  Users, FileText, CalendarClock, Layers,
+  CheckCircle2, HelpCircle, Building2, Flame
 } from 'lucide-react';
 import {
-  KpiCard, ChartCard, Donut, VBar, HBar, TrendArea, ProgressRing, Empty
+  KpiCard, ChartCard, Donut, VBar, HBar, Empty
 } from '../components/Charts';
 import { computeAdminAnalytics, distinctValues } from '../utils/adminAnalytics';
 
@@ -109,8 +109,6 @@ export default function AdminDashboardView({ data = {}, loading, onRefreshData }
 
   const k = a.kpis;
 
-  const windowLabel = WINDOW_DAYS ? `Last ${WINDOW_DAYS} days` : 'All time';
-
   return (
     <div className="space-y-5 font-sans text-slate-800">
       {/* Header + filters */}
@@ -160,9 +158,6 @@ export default function AdminDashboardView({ data = {}, loading, onRefreshData }
 
       {/* KPI strip */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <KpiCard icon={ShieldCheck} label="Compliance Score" value={`${k.complianceScore}%`}
-          sub={`${k.passRate}% pass rate`}
-          color="text-emerald-600" bg="bg-emerald-50" border="border-emerald-100" />
         <KpiCard icon={ClipboardCheck} label="Audits" value={k.submittedCount}
           sub={`${k.inProgressCount} in progress · ${k.totalAudits} total`}
           color="text-blue-600" bg="bg-blue-50" border="border-blue-100" />
@@ -172,9 +167,6 @@ export default function AdminDashboardView({ data = {}, loading, onRefreshData }
         <KpiCard icon={CalendarClock} label="Overdue Schedules" value={k.overdueSchedulesCount}
           sub={`${k.dueThisWeekCount} due this week`}
           color="text-amber-600" bg="bg-amber-50" border="border-amber-100" />
-        <KpiCard icon={Target} label="POD Coverage" value={`${k.coveragePercent}%`}
-          sub={`${k.podsAudited}/${k.totalPods} PODs audited`}
-          color="text-violet-600" bg="bg-violet-50" border="border-violet-100" />
         <KpiCard icon={CheckCircle2} label="Schedule Adherence" value={`${k.scheduleAdherence}%`}
           sub={`${k.activeSchedules} active schedules`}
           color="text-teal-600" bg="bg-teal-50" border="border-teal-100" />
@@ -184,32 +176,6 @@ export default function AdminDashboardView({ data = {}, loading, onRefreshData }
         <KpiCard icon={Users} label="Auditors" value={k.contributingAuditors}
           sub={`${k.idleAuditors} idle · ${k.activeAuditors} active`}
           color="text-indigo-600" bg="bg-indigo-50" border="border-indigo-100" />
-      </div>
-
-      {/* Trend + compliance ring */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <ChartCard title="Audit Volume & Compliance Trend" icon={Activity} className="lg:col-span-2">
-          {a.trend.some((t) => t.count > 0)
-            ? <TrendArea data={a.trend} />
-            : <Empty icon={Activity}>No audits in this window</Empty>}
-        </ChartCard>
-
-        <ChartCard title="Org Compliance" icon={Target}>
-          <ProgressRing
-            value={k.complianceScore}
-            color={k.complianceScore >= 75 ? '#10b981' : k.complianceScore >= 50 ? '#f59e0b' : '#ef4444'}
-          />
-          <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-slate-100 text-[11px]">
-            <div><span className="font-semibold text-slate-400">Passed</span>
-              <div className="font-black text-emerald-600">{k.passedCount}</div></div>
-            <div><span className="font-semibold text-slate-400">Failed</span>
-              <div className="font-black text-rose-600">{k.failedCount}</div></div>
-            <div><span className="font-semibold text-slate-400">Avg fix time</span>
-              <div className="font-black text-slate-700">{k.avgResolutionDays} d</div></div>
-            <div><span className="font-semibold text-slate-400">Unassigned actions</span>
-              <div className="font-black text-slate-700">{k.unassignedActionsCount}</div></div>
-          </div>
-        </ChartCard>
       </div>
 
       {/* Distributions */}
@@ -375,102 +341,8 @@ export default function AdminDashboardView({ data = {}, loading, onRefreshData }
         ) : <Empty />}
       </ChartCard>
 
-      {/* Actions + schedule risk */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <ChartCard title="Open Actions" icon={ListChecks}>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">By priority</div>
-              {a.actions.byPriority.length
-                ? <Donut data={a.actions.byPriority} centerLabel="Open" centerValue={k.openActionsCount} height={180} />
-                : <Empty icon={CheckCircle2}>All clear</Empty>}
-            </div>
-            <div>
-              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Ageing</div>
-              <VBar data={a.actions.ageBuckets} dataKey="count" xKey="range" height={180} />
-            </div>
-          </div>
-
-          {a.actions.overdue.length > 0 && (
-            <div className="mt-4 pt-3 border-t border-slate-100 space-y-1.5">
-              <div className="text-[10px] font-bold text-rose-500 uppercase tracking-wider">Overdue</div>
-              {a.actions.overdue.map((x) => (
-                <div key={x.action_id} className="flex items-center justify-between text-[11px] gap-2">
-                  <span className="font-semibold text-slate-600 truncate">{x.title}</span>
-                  <span className="font-bold text-rose-600 shrink-0">{x.daysLate}d late</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </ChartCard>
-
-        <ChartCard title="Schedule Risk" icon={Clock}>
-          <div className="space-y-4">
-            <div>
-              <div className="text-[10px] font-bold text-rose-500 uppercase tracking-wider mb-2">
-                Overdue ({k.overdueSchedulesCount})
-              </div>
-              {a.schedules.overdue.length ? a.schedules.overdue.map((s) => (
-                <div key={s.schedule_id} className="flex items-center justify-between text-[11px] py-1 border-b border-slate-50">
-                  <div className="min-w-0">
-                    <div className="font-semibold text-slate-700 truncate">{s.template_name}</div>
-                    <div className="text-[10px] text-slate-400 truncate">{s.location_id} · {s.auditor}</div>
-                  </div>
-                  <span className="font-black text-rose-600 shrink-0 ml-2">{s.daysLate}d</span>
-                </div>
-              )) : <Empty icon={CheckCircle2}>Nothing overdue</Empty>}
-            </div>
-
-            <div>
-              <div className="text-[10px] font-bold text-amber-500 uppercase tracking-wider mb-2">
-                Due this week ({k.dueThisWeekCount})
-              </div>
-              {a.schedules.dueThisWeek.length ? a.schedules.dueThisWeek.map((s) => (
-                <div key={s.schedule_id} className="flex items-center justify-between text-[11px] py-1 border-b border-slate-50">
-                  <div className="min-w-0">
-                    <div className="font-semibold text-slate-700 truncate">{s.template_name}</div>
-                    <div className="text-[10px] text-slate-400 truncate">{s.location_id} · {s.auditor}</div>
-                  </div>
-                  <span className="font-bold text-slate-500 shrink-0 ml-2">{shortDate(s.due_date)}</span>
-                </div>
-              )) : <Empty>Nothing due this week</Empty>}
-            </div>
-          </div>
-        </ChartCard>
-      </div>
-
       {/* Coverage gaps + critical failures */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <ChartCard title="Coverage Gaps" icon={MapPin}>
-          {a.coverage.uncoveredClusters.length > 0 && (
-            <div className="mb-3">
-              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-                Clusters with zero audits
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {a.coverage.uncoveredClusters.map((c) => (
-                  <span key={c} className="px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 text-[10px] font-bold">
-                    {c}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-          <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-            PODs never audited ({k.totalPods - k.podsAudited})
-          </div>
-          {a.coverage.uncoveredPods.length ? (
-            <div className="max-h-56 overflow-y-auto space-y-1">
-              {a.coverage.uncoveredPods.map((p, i) => (
-                <div key={i} className="flex items-center justify-between text-[11px] py-1 border-b border-slate-50">
-                  <span className="font-semibold text-slate-600 truncate">{p.pod}</span>
-                  <span className="text-slate-400 shrink-0 ml-2">{p.city} · {p.cluster}</span>
-                </div>
-              ))}
-            </div>
-          ) : <Empty icon={CheckCircle2}>Every POD covered</Empty>}
-        </ChartCard>
-
+      <div className="grid grid-cols-1 gap-4">
         <ChartCard title="Recent Critical Failures" icon={Flame}>
           {a.criticalAudits.length ? (
             <div className="overflow-x-auto">
@@ -496,22 +368,6 @@ export default function AdminDashboardView({ data = {}, loading, onRefreshData }
         </ChartCard>
       </div>
 
-      {/* Activity feed */}
-      <ChartCard title="Recent Activity" icon={Activity}>
-        {a.recentActivity.length ? (
-          <div className="space-y-2 max-h-72 overflow-y-auto">
-            {a.recentActivity.map((l) => (
-              <div key={l.id} className="flex items-start gap-3 text-[11px] pb-2 border-b border-slate-50">
-                <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-bold shrink-0">
-                  {l.type}
-                </span>
-                <span className="font-semibold text-slate-600 flex-1">{l.description}</span>
-                <span className="text-slate-400 shrink-0">{shortDate(l.at)}</span>
-              </div>
-            ))}
-          </div>
-        ) : <Empty />}
-      </ChartCard>
     </div>
   );
 }
