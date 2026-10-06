@@ -9,14 +9,43 @@ import ActionOwnerWorkspace from '../roles/action-owner/ActionOwnerWorkspace';
 
 export default function App() {
   // Persistent User Authentication State
-  const [currentUser, setCurrentUser] = useState(() => {
-    try {
-      const saved = localStorage.getItem('imvitals_user');
-      return saved ? JSON.parse(saved) : null;
-    } catch (e) {
-      return null;
-    }
-  });
+  const [currentUser, setCurrentUser] = useState(null);
+
+  // Restore the app session from Supabase Auth (never from client-editable localStorage).
+  useEffect(() => {
+    let disposed = false;
+    const loadProfile = async (authUser) => {
+      const { data: profiles, error } = await supabase.rpc('get_my_profile');
+      const profile = Array.isArray(profiles) ? profiles[0] : profiles;
+      if (disposed) return;
+      if (error || !profile || !profile.active) {
+        setCurrentUser(null);
+        if (error) console.error('Could not restore user profile:', error);
+        return;
+      }
+      setCurrentUser({
+        user_id: profile.user_id,
+        name: profile.full_name || authUser.email,
+        email: profile.email,
+        role: profile.role,
+        home_cluster: profile.home_cluster || '',
+        additional_cluster: profile.additional_cluster || ''
+      });
+    };
+
+    supabase.auth.getSession().then(({ data, error }) => {
+      if (error) console.error('Could not restore sign-in session:', error);
+      if (data?.session) loadProfile(data.session.user);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) setCurrentUser(null);
+      else setTimeout(() => loadProfile(session.user), 0);
+    });
+    return () => {
+      disposed = true;
+      subscription.unsubscribe();
+    };
+  }, []);
 
   // Offline Sync Queue Handler (Updated for local data store)
   useEffect(() => {
@@ -109,12 +138,11 @@ export default function App() {
 
   const handleAuthenticated = (user) => {
     setCurrentUser(user);
-    localStorage.setItem('imvitals_user', JSON.stringify(user));
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
     setCurrentUser(null);
-    localStorage.removeItem('imvitals_user');
   };
 
   if (!currentUser) {
@@ -161,3 +189,4 @@ return (
   />
 );
 }
+
