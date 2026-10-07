@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { User, Mail, LockKeyhole, Loader2, ArrowRight, Sparkles } from 'lucide-react';
 import { supabase } from '../../shared/lib/supabaseClient';
 
-const ALLOWED_DOMAINS = ['swiggy.in', 'external.swiggyimnet.in', 'swiggyimnet.in', 'swiggyiment.in', 'scootsy.com', 'external.instamart.in'];
+const ALLOWED_DOMAINS = ['swiggy.in', 'external.swiggyimnet.in', 'swiggyimnet.in', 'swiggyiment.in', 'scootsy.com', 'external.instamart.in','external.scootsy.com'];
 
 export default function LoginScreen({ onAuthenticated }) {
   const [mode, setMode] = useState('signin');
@@ -77,9 +77,11 @@ export default function LoginScreen({ onAuthenticated }) {
       if (signinError) throw signinError;
 
       const { data: profiles, error: profileError } = await supabase.rpc('get_my_profile');
+      console.log('Retrieved profile for user:', data.user?.id, data.user?.email, profiles);
       if (profileError) throw profileError;
       const profile = Array.isArray(profiles) ? profiles[0] : profiles;
       if (!profile) {
+        console.log('No profile found for user:', data.user?.id, data.user?.email);
         await supabase.auth.signOut();
         throw new Error('Your profile is not set up yet. Contact your administrator.');
       }

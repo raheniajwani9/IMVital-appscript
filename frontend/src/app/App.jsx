@@ -14,10 +14,11 @@ export default function App() {
   // Restore the app session from Supabase Auth (never from client-editable localStorage).
   useEffect(() => {
     let disposed = false;
-    const loadProfile = async (authUser) => {
+    let sessionRevision = 0;
+    const loadProfile = async (authUser, revision) => {
       const { data: profiles, error } = await supabase.rpc('get_my_profile');
       const profile = Array.isArray(profiles) ? profiles[0] : profiles;
-      if (disposed) return;
+      if (disposed || revision !== sessionRevision) return;
       if (error || !profile || !profile.active) {
         setCurrentUser(null);
         if (error) console.error('Could not restore user profile:', error);
@@ -33,13 +34,14 @@ export default function App() {
       });
     };
 
-    supabase.auth.getSession().then(({ data, error }) => {
-      if (error) console.error('Could not restore sign-in session:', error);
-      if (data?.session) loadProfile(data.session.user);
-    });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!session) setCurrentUser(null);
-      else setTimeout(() => loadProfile(session.user), 0);
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT') {
+        sessionRevision += 1;
+        setCurrentUser(null);
+      } else if (event === 'INITIAL_SESSION' && session) {
+        const revision = ++sessionRevision;
+        setTimeout(() => loadProfile(session.user, revision), 0);
+      }
     });
     return () => {
       disposed = true;
