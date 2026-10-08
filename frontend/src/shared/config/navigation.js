@@ -19,8 +19,7 @@ export const NAV_CONFIG = {
         title: 'COMMAND CENTRE',
         items: [
           { key: 'Dashboard', name: 'Dashboard', icon: BarChart3 },
-          { key: 'Forms', name: 'Forms', icon: LayoutGrid, countKey: 'templates' },
-          { key: 'Schedules', name: 'Schedules', icon: Calendar, countKey: 'schedules' }
+          { key: 'Forms', name: 'Forms', icon: LayoutGrid, countKey: 'templates' }
         ]
       },
       {
