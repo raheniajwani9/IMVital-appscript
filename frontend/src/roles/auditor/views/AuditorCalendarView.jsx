@@ -26,9 +26,11 @@ const parse = (v) => {
 
 const fmt = (v) => parse(v)?.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) || 'N/A';
 
-// Schedules use run_date as the assigned inspection date; due_date is the deadline.
+// Active assignments use run_date; completed audit history uses its submission date.
 const getAssignedDate = (assignment) =>
-  assignment.run_date || assignment.start_date || assignment.created_at;
+  assignment.calendar_history
+    ? assignment.submitted_at || assignment.completed_at || assignment.created_at
+    : assignment.run_date || assignment.start_date || assignment.created_at;
 
 const getAuditName = (assignment, templates = [], template) => {
   const matchedTemplate = template || templates.find((t) =>
@@ -55,6 +57,7 @@ const chipTone = (a) => {
 
 export default function AuditorCalendarView({
   assignments = [],
+  audits = [],
   templates = [],
   currentUser,
   onStartAudit
@@ -78,10 +81,29 @@ export default function AuditorCalendarView({
     });
   }, [assignments, priorityFilter]);
 
-  /* Group assignments by their assigned inspection date (run_date), not deadline. */
+  const panIndiaAssignments = useMemo(
+    () => filteredAssignments.filter((assignment) => assignment.pan_india),
+    [filteredAssignments]
+  );
+  const datedAssignments = useMemo(
+    () => filteredAssignments.filter((assignment) => !assignment.pan_india),
+    [filteredAssignments]
+  );
+  const historyEvents = useMemo(() => audits
+    .filter((audit) => ['SUBMITTED', 'COMPLETED', 'APPROVED'].includes(String(audit.status || '').toUpperCase()))
+    .filter((audit) => priorityFilter === 'ALL' || String(audit.priority || 'MEDIUM').toUpperCase() === priorityFilter)
+    .map((audit) => ({ ...audit, audit_status: 'SUBMITTED', calendar_history: true })),
+  [audits, priorityFilter]);
+
+  /* Pan India forms are available anytime; only dated assignments belong on the grid. */
   const byDay = useMemo(() => {
     const map = {};
-    filteredAssignments.forEach((a) => {
+    const completedScheduleIds = new Set(historyEvents.map((audit) => audit.schedule_id).filter(Boolean));
+    const calendarEvents = [
+      ...datedAssignments.filter((assignment) => !completedScheduleIds.has(assignment.schedule_id)),
+      ...historyEvents
+    ];
+    calendarEvents.forEach((a) => {
       const d = parse(getAssignedDate(a));
       if (d) {
         const key = toISO(d);
@@ -89,7 +111,7 @@ export default function AuditorCalendarView({
       }
     });
     return map;
-  }, [filteredAssignments]);
+  }, [datedAssignments, historyEvents]);
 
   /* 6-week grid starting Sunday */
   const cells = useMemo(() => {
@@ -119,11 +141,11 @@ export default function AuditorCalendarView({
   const templateFor = (a) =>
     templates.find((t) => String(t.template_id) === String(a.template_id) || String(t.template_code) === String(a.template_id));
 
-  const move = (n) =>
-    setYm(({ y, m }) => {
-      const d = new Date(y, m + n, 1);
-      return { y: d.getFullYear(), m: d.getMonth() };
-    });
+  const move = (n) => {
+    const d = new Date(ym.y, ym.m + n, 1);
+    setYm({ y: d.getFullYear(), m: d.getMonth() });
+    setSelected(toISO(d));
+  };
 
   const goToday = () => {
     setYm({ y: now.getFullYear(), m: now.getMonth() });
@@ -137,7 +159,7 @@ export default function AuditorCalendarView({
         <div>
           <h1 className="text-2xl font-bold text-slate-900 tracking-tight">My Calendar</h1>
           <p className="text-sm font-medium text-slate-500 mt-0.5">
-            {summary.assigned} assigned this month · {summary.overdue} overdue · {summary.done} completed
+            {summary.assigned} events this month · {summary.done} submitted · {summary.overdue} overdue · {panIndiaAssignments.length} Pan India available
           </p>
         </div>
       </div>
@@ -168,6 +190,12 @@ export default function AuditorCalendarView({
               {MONTHS[ym.m]} <span className="font-medium text-slate-400">{ym.y}</span>
             </h2>
             <div className="flex items-center gap-1">
+              <button
+                onClick={goToday}
+                className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+              >
+                Today
+              </button>
               <button
                 onClick={() => move(-1)}
                 className="p-1.5 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700 transition-colors cursor-pointer"
@@ -236,7 +264,7 @@ export default function AuditorCalendarView({
           {/* Legend */}
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-3 pt-2 border-t border-slate-100">
             {[
-              ['Due', 'bg-blue-600'],
+              ['Assigned', 'bg-blue-600'],
               ['In Progress', 'bg-amber-500'],
               ['Overdue', 'bg-rose-600'],
               ['Submitted', 'bg-emerald-600']
@@ -254,7 +282,7 @@ export default function AuditorCalendarView({
             <h3 className="text-xs font-bold text-slate-900 tracking-wide">
               {selected === todayISO ? 'Today' : fmt(selected)}
             </h3>
-            <span className="text-[10px] font-medium text-slate-400">{events.length} scheduled</span>
+            <span className="text-[10px] font-medium text-slate-400">{events.length} dated</span>
           </div>
 
           {events.length === 0 ? (
@@ -292,13 +320,13 @@ export default function AuditorCalendarView({
                           : a.is_overdue ? 'bg-rose-600 text-white border-rose-600'
                           : 'bg-slate-100 text-slate-600 border-slate-200'}`}
                       >
-                        {submitted ? 'Submitted' : inProgress ? 'In Progress' : a.is_overdue ? 'Overdue' : 'Not Started'}
+                        {submitted ? 'Submitted' : inProgress ? 'In Progress' : a.is_overdue ? 'Overdue' : 'Assigned'}
                       </span>
                     </div>
 
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-[10px] font-medium text-slate-400">
-                        {a.priority || 'MEDIUM'} · {a.frequency || 'ONE_TIME'} · Assigned {fmt(getAssignedDate(a))}
+                        {a.priority || 'MEDIUM'} · {a.calendar_history ? 'Submitted' : 'Assigned'} {fmt(getAssignedDate(a))}
                       </span>
                       {!tpl || !(tpl.sections || []).length ? (
                         <span className="text-[9px] font-semibold text-amber-600">Checklist unavailable</span>

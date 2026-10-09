@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   ArrowLeft, ChevronLeft, ChevronRight, Loader2, Save, Send, CheckCircle2,
-  AlertTriangle, MapPin, Calendar, Cloud, CloudOff, Wifi, Camera, ScanLine, X,
+  AlertTriangle, MapPin, Calendar, CloudOff, Wifi, Camera, ScanLine, X,
   Gauge, Star, ListChecks, ShieldCheck, Check
 } from 'lucide-react';
 
@@ -11,6 +11,7 @@ import {
   computeAuditScore,
   validateAudit,
   isNegativeAnswer,
+  hasValue,
   parseBool
 } from '../../../features/audits/utils/auditEngine';
 import { supabase } from '../../../shared/lib/supabaseClient';
@@ -321,6 +322,7 @@ export default function AuditRunnerView({ assignment, template, currentUser, onE
             audit_id: auditIdToUse,
             schedule_id: assignment.schedule_id,
             template_id: template?.template_id || assignment.template_id,
+            template_version_id: assignment.template_version_id || template?.template_version_id || null,
             template_name: template?.template_name || assignment.template_name || '',
             cluster: resolvedCluster,
             city: resolvedCity,
@@ -341,24 +343,10 @@ export default function AuditRunnerView({ assignment, template, currentUser, onE
             .upsert([newAuditPayload], { onConflict: 'audit_id' });
 
           if (upsertError) throw upsertError;
-
-          await supabase
-            .from('schedules')
-            .update({ status: 'IN_PROGRESS' })
-            .eq('schedule_id', assignment.schedule_id);
         }
-
-        const { data: draftData } = await supabase
-          .from('audit_drafts')
-          .select('draft_json')
-          .eq('audit_id', auditIdToUse)
-          .maybeSingle();
 
         if (!cancelled) {
           setAuditId(auditIdToUse);
-          if (!localDraft && draftData?.draft_json) {
-            setAnswers(draftData.draft_json);
-          }
           setBooting(false);
         }
       } catch (err) {
@@ -374,36 +362,18 @@ export default function AuditRunnerView({ assignment, template, currentUser, onE
     return () => { cancelled = true; };
   }, [assignment, currentUser, template]);
 
-  const pushDraft = useCallback(async () => {
+  const pushDraft = useCallback(() => {
     if (!auditIdRef.current || !dirtyRef.current || isSubmittingRef.current) return;
 
-    localStorage.setItem(`draft_${assignment.schedule_id}`, JSON.stringify(answersRef.current));
-
-    if (!navigator.onLine) {
-      dirtyRef.current = false;
-      setSaveState('saved');
-      return;
-    }
-
-    setSaveState('saving');
     try {
-      const { error } = await supabase.from('audit_drafts').upsert({
-        audit_id: auditIdRef.current,
-        schedule_id: assignment.schedule_id,
-        auditor_email: currentUser?.email || '',
-        draft_json: answersRef.current,
-        updated_at: new Date().toISOString()
-      }, { onConflict: 'audit_id' });
-
-      if (error) throw error;
-
+      localStorage.setItem(`draft_${assignment.schedule_id}`, JSON.stringify(answersRef.current));
       dirtyRef.current = false;
       setSaveState('saved');
-    } catch (err) {
-      console.error('Auto-save error:', err);
+    } catch (error) {
+      console.error('Local save error:', error);
       setSaveState('error');
     }
-  }, [assignment.schedule_id, currentUser]);
+  }, [assignment.schedule_id]);
 
   const handleAnswerChange = (questionId, updater) => {
     if (isSubmittingRef.current || submitting || submitted) return;
@@ -608,6 +578,7 @@ export default function AuditRunnerView({ assignment, template, currentUser, onE
       audit_id: auditId,
       schedule_id: assignment.schedule_id,
       template_id: template?.template_id || assignment.template_id,
+      template_version_id: assignment.template_version_id || template?.template_version_id || null,
       template_name: template?.template_name || assignment.template_name,
       cluster: resolvedCluster,
       city: resolvedCity,
@@ -647,8 +618,8 @@ export default function AuditRunnerView({ assignment, template, currentUser, onE
           question_text: q.question_text || '',
           response_type: q.response_type || 'TEXT',
           response_value: ans.na ? 'N/A' : (valStr || ''),
-          score: 0,
-          max_score: q.points || 0,
+          score: !ans.na && hasValue(ans) && !failed && (q.scored === undefined || parseBool(q.scored)) ? 1 : 0,
+          max_score: !ans.na && (q.scored === undefined || parseBool(q.scored)) ? 1 : 0,
           is_failure: failed,
           critical_question: parseBool(q.critical_question),
           risk_category: q.risk_category || 'General',
@@ -731,9 +702,6 @@ export default function AuditRunnerView({ assignment, template, currentUser, onE
 
         if (actionsError) throw actionsError;
       }
-
-      await supabase.from('audit_drafts').delete().eq('audit_id', auditId);
-      await supabase.from('schedules').update({ status: 'COMPLETED' }).eq('schedule_id', assignment.schedule_id);
 
       localStorage.removeItem(`draft_${assignment.schedule_id}`);
       
@@ -964,10 +932,10 @@ export default function AuditRunnerView({ assignment, template, currentUser, onE
 
         <div className="flex items-center gap-2 shrink-0">
           <span className={`flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider px-2.5 py-1.5 rounded-lg ${saveState === 'error' ? 'bg-rose-50 text-rose-600' : saveState === 'saving' ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-600'}`}>
-            {saveState === 'error' ? <><CloudOff className="w-3 h-3" /> Not saved</> : saveState === 'saving' ? <><Loader2 className="w-3 h-3 animate-spin" /> Saving</> : <><Cloud className="w-3 h-3" /> Draft saved</>}
+            {saveState === 'error' ? <><CloudOff className="w-3 h-3" /> Not saved</> : saveState === 'saving' ? <><Loader2 className="w-3 h-3 animate-spin" /> Saving</> : <><Save className="w-3 h-3" /> Saved on this device</>}
           </span>
           <button onClick={handleSaveNow} disabled={submitting || isSubmittingRef.current || submitted} className="flex items-center gap-2 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-semibold px-4 py-2.5 rounded-xl shadow-sm transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
-            <Save className="w-4 h-4" /> Save Draft
+            <Save className="w-4 h-4" /> Save locally
           </button>
         </div>
       </div>

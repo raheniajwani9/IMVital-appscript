@@ -5,7 +5,7 @@ export function parseBool(v) {
 }
 
 export function isNegativeAnswer(question, value) {
-  const token = String(value || '').trim().toUpperCase();
+  const token = String(value || '').trim().toUpperCase().replace(/[\s-]+/g, '_');
   return [
     'NO',
     'FAIL',
@@ -13,6 +13,8 @@ export function isNegativeAnswer(question, value) {
     'UNSAFE',
     'NON_COMPLIANT',
     'ABSENT',
+    'NOT_COMPLETE',
+    'INCOMPLETE',
     'REJECTED'
   ].includes(token);
 }
@@ -33,12 +35,15 @@ export function computeAuditScore(template, answers) {
   let naCount = 0;
   let failures = 0;
   let criticalFailures = 0;
+  const sectionScores = [];
 
   (template?.sections || []).forEach((sec) => {
+    let sectionEarned = 0;
+    let sectionMax = 0;
     (sec.questions || []).forEach((q) => {
       totalQuestions++;
       const ans = answers[q.question_id] || {};
-      const qMax = Number(q.max_score) || Number(q.points) || 0;
+      const qMax = q.scored === undefined ? 1 : (parseBool(q.scored) ? 1 : 0);
       
       const hasVal = ans.na || (ans.value !== undefined && String(ans.value).trim() !== '');
       if (hasVal) answeredCount++;
@@ -51,6 +56,7 @@ export function computeAuditScore(template, answers) {
 
       if (!hasVal) {
         maxPossible += qMax; 
+        sectionMax += qMax;
         return;
       }
 
@@ -58,17 +64,29 @@ export function computeAuditScore(template, answers) {
       const isCritical = parseBool(q.critical_question);
 
       maxPossible += qMax;
+      sectionMax += qMax;
 
       if (isFail) {
         failures++;
         if (isCritical) criticalFailures++;
       } else {
         totalScore += qMax; 
+        sectionEarned += qMax;
       }
     });
+    sectionScores.push({ earned: sectionEarned, max: sectionMax, weight: Number(sec.section_weight) });
   });
 
-  const percent = maxPossible > 0 ? Math.round((totalScore / maxPossible) * 100) : 0;
+  const hasSectionWeights = sectionScores.length > 0 &&
+    (template?.sections || []).every((sec) => sec.section_weight !== null && sec.section_weight !== undefined && sec.section_weight !== '') &&
+    Math.abs(sectionScores.reduce((total, section) => total + section.weight, 0) - 100) < 0.01;
+  const applicableWeight = sectionScores.reduce((total, section) =>
+    total + (section.max > 0 ? section.weight : 0), 0);
+  const percent = hasSectionWeights && applicableWeight > 0
+    ? Math.round(sectionScores.reduce((total, section) =>
+        total + (section.max > 0 ? (section.earned / section.max) * section.weight : 0), 0
+      ) / applicableWeight * 100)
+    : maxPossible > 0 ? Math.round((totalScore / maxPossible) * 100) : 0;
 
   return {
     total: totalQuestions,
@@ -108,7 +126,7 @@ export function validateAudit(template, answers) {
 export function getInputKind(question) {
   const t = String(question.response_type || '').toUpperCase().replace(/[\s-]+/g, '_');
   
-  if (t === 'YES_NO' || t === 'PASS_FAIL' || t === 'CHOICE' || t === 'SAFE_UNSAFE') return 'CHOICE';
+  if (t === 'YES_NO' || t === 'PASS_FAIL' || t === 'COMPLETE_NOT_COMPLETE' || t === 'CHOICE' || t === 'SAFE_UNSAFE') return 'CHOICE';
   if (t === 'MULTI_SELECT' || t === 'MULTI') return 'MULTI';
   
   // Keep standard scales as buttons
@@ -143,6 +161,8 @@ export function getResponseOptions(question) {
   const t = String(question.response_type || '').toUpperCase();
   if (t === 'YES_NO') return [{ label: 'Yes', value: 'YES' }, { label: 'No', value: 'NO', negative: true }];
   if (t === 'PASS_FAIL') return [{ label: 'Pass', value: 'PASS' }, { label: 'Fail', value: 'FAIL', negative: true }];
+  if (t === 'SAFE_UNSAFE') return [{ label: 'Safe', value: 'SAFE' }, { label: 'Unsafe', value: 'UNSAFE', negative: true }];
+  if (t === 'COMPLETE_NOT_COMPLETE') return [{ label: 'Complete', value: 'COMPLETE' }, { label: 'Not Complete', value: 'NOT_COMPLETE', negative: true }];
   if (t === 'SAFE_UNSAFE') return [{ label: 'Safe', value: 'SAFE' }, { label: 'Unsafe', value: 'UNSAFE', negative: true }];
   try {
     const parsed = JSON.parse(question.options_json || '[]');

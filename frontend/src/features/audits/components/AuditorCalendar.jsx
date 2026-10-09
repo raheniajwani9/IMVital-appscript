@@ -17,10 +17,6 @@ const STATUS_STYLES = {
     label: 'Scheduled',
     className: 'bg-slate-100 text-slate-600 border-slate-200'
   },
-  NOT_STARTED: {
-    label: 'Not Started',
-    className: 'bg-slate-100 text-slate-600 border-slate-200'
-  },
   IN_PROGRESS: {
     label: 'In Progress',
     className: 'bg-amber-50 text-amber-700 border-amber-200'
