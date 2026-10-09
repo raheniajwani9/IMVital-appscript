@@ -14,8 +14,8 @@ const RESPONSE_TYPES = [
   { value: 'RATING', label: 'Rating (1-5)' }
 ];
 
-const getResponseScores = (responseType, maxScore) => {
-  const score = Number(maxScore) || 0;
+const getResponseScores = (responseType) => {
+  const score = 1;
 
   const responseLabels = {
     YES_NO: ['Yes', 'No'],
@@ -76,11 +76,11 @@ const hydrateQ = (q) => ({
   response_type: normalizeResponseType(q.response_type),
   evidence_policy: q.evidence_policy || 'OPTIONAL',
   allowed_evidence: q.allowed_evidence || [],
-  points: q.points || q.max_score || 1,
+  points: 1,
   is_required: q.is_required ?? q.required ?? true,
   instructions: q.instructions || q.help_text || '',
   showInstructions: !!(q.instructions || q.help_text),
-  scored: q.scored !== undefined ? parseBool(q.scored) : false,
+  scored: q.scored !== undefined ? parseBool(q.scored) : true,
   failure_response: q.failure_response || 'NONE',
   critical_question: q.critical_question !== undefined ? parseBool(q.critical_question) : false,
   na_allowed: q.na_allowed !== undefined ? parseBool(q.na_allowed) : false,
@@ -89,17 +89,16 @@ const hydrateQ = (q) => ({
   comment_required: q.comment_required || 'NEVER'
 });
 
-export default function UpdateFormModal({ form, onClose, onUpdated }) {
+export default function UpdateFormModal({ form, currentUser, onClose, onUpdated }) {
   const [step, setStep] = useState(0);
 
   const dynamicCategories = useMemo(() => {
     const defaultCats = ['Operations', 'Food Safety & Hygiene', 'Cold Chain Compliance', 'Safety & Maintenance'];
-    return Array.from(new Set([...defaultCats, form?.template_category].filter(Boolean)));
+    const sectionCategories = (form?.sections || []).map((section) => section.section_category);
+    return Array.from(new Set([...defaultCats, ...sectionCategories].filter(Boolean)));
   }, [form]);
 
-  const [categories, setCategories] = useState(dynamicCategories);
-  const [isAddingCategory, setIsAddingCategory] = useState(false);
-  const [newCategoryInput, setNewCategoryInput] = useState('');
+  const categories = dynamicCategories;
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
@@ -121,15 +120,22 @@ export default function UpdateFormModal({ form, onClose, onUpdated }) {
     sections: (form?.sections || []).length > 0
       ? form.sections.map((sec) => ({
           section_name: sec.section_name || 'General Inspection',
+          section_category: sec.section_category || form?.template_category || 'Operations',
+          section_weight: sec.section_weight ?? ((form?.sections || []).length === 1 ? 100 : ''),
           section_order: sec.section_order || 1,
           section_instructions: sec.section_instructions || '',
           questions: (sec.questions || []).length > 0 ? sec.questions.map(hydrateQ) : [blankQ()]
         }))
-      : [{ section_name: 'General Inspection', section_order: 1, section_instructions: '', questions: [blankQ()] }]
+      : [{ section_name: 'General Inspection', section_category: form?.template_category || 'Operations', section_weight: 100, section_order: 1, section_instructions: '', questions: [blankQ()] }]
   }));
 
   const isStep1Valid = formData.template_name.trim().length > 0;
   const totalSections = formData.sections.length;
+  const totalWeight = formData.sections.reduce((total, section) => total + (Number(section.section_weight) || 0), 0);
+  const sectionDetailsValid = formData.sections.every((section) =>
+    section.section_name.trim() && section.section_category.trim() &&
+    section.section_weight !== '' && Number(section.section_weight) > 0 && Number(section.section_weight) <= 100
+  ) && Math.abs(totalWeight - 100) < 0.01;
   const totalQuestions = formData.sections.reduce((a, s) => a + s.questions.length, 0);
   const onFormDetails = step === 0;
   const onSection = step >= 1;
@@ -143,20 +149,12 @@ export default function UpdateFormModal({ form, onClose, onUpdated }) {
 
   const canAddSection = isStep1Valid && (onFormDetails || currentSectionHasQuestions);
   const hasAnyQuestions = formData.sections.some((s) => s.questions.some((q) => q.question_text.trim() !== ''));
-  const canSaveForm = isStep1Valid && hasAnyQuestions;
-
-  const handleAddCustomCategory = () => {
-    if (!newCategoryInput.trim()) return;
-    const addedCat = newCategoryInput.trim();
-    if (!categories.includes(addedCat)) setCategories((prev) => [...prev, addedCat]);
-    setFormData((prev) => ({ ...prev, template_category: addedCat }));
-    setNewCategoryInput(''); setIsAddingCategory(false);
-  };
+  const canSaveForm = isStep1Valid && hasAnyQuestions && sectionDetailsValid;
 
   const handleChange = (field, value) => setFormData((prev) => ({ ...prev, [field]: value }));
 
   const addSection = () => {
-    const newSec = { section_name: `Section ${totalSections + 1}`, section_order: totalSections + 1, section_instructions: '', questions: [blankQ()] };
+    const newSec = { section_name: `Section ${totalSections + 1}`, section_category: formData.sections[formData.sections.length - 1]?.section_category || categories[0], section_weight: 0, section_order: totalSections + 1, section_instructions: '', questions: [blankQ()] };
     setFormData((prev) => ({ ...prev, sections: [...prev.sections, newSec] }));
     setStep(totalSections + 1);
   };
@@ -167,7 +165,7 @@ export default function UpdateFormModal({ form, onClose, onUpdated }) {
     return { ...prev, sections: newSections };
   });
 
-  const updateSectionName = (sIdx, value) => setFormData((prev) => ({ ...prev, sections: prev.sections.map((sec, i) => (i === sIdx ? { ...sec, section_name: value } : sec)) }));
+  const updateSectionField = (sIdx, field, value) => setFormData((prev) => ({ ...prev, sections: prev.sections.map((sec, i) => (i === sIdx ? { ...sec, [field]: value } : sec)) }));
   const addQuestion = (sIdx) => setFormData((prev) => ({ ...prev, sections: prev.sections.map((sec, i) => (i === sIdx ? { ...sec, questions: [...sec.questions, blankQ()] } : sec)) }));
 
   const updateQuestion = (sIdx, qIdx, field, value) =>
@@ -199,77 +197,29 @@ export default function UpdateFormModal({ form, onClose, onUpdated }) {
     if (e && e.preventDefault) e.preventDefault();
     if (!isStep1Valid) { setStep(0); return; }
     if (!hasAnyQuestions) { setStep(1); return; }
+    if (!sectionDetailsValid) { setError('Enter section details and make weights total 100%.'); setStep(1); return; }
 
     setError('');
     setSubmitting(true);
     const templateId = formData.template_id;
 
     try {
-      // 1. Update the Templates table
-      const { error: templateError } = await supabase
-        .from('templates')
-        .update({
+      const { data: publishedVersion, error: publishError } =
+      await supabase.rpc('publish_template_version', {
+        p_template_id: templateId,
+        p_template: {
           template_name: formData.template_name,
           template_category: formData.template_category,
           template_description: formData.template_description,
           estimated_minutes: Number(formData.estimated_minutes) || 15
-        })
-        .eq('template_id', templateId);
+        },
+        p_sections: formData.sections,
+        p_actor: currentUser?.user_id || currentUser?.name || 'System Admin',
+        p_change_summary: 'Published from form editor'
+      });
 
-      if (templateError) throw templateError;
-
-      // 2. Clear out old sections and questions to prevent orphaned data
-      // local data store cascade delete handles question_bank if we delete sections, but let's be explicit
-      await supabase.from('question_bank').delete().eq('template_id', templateId);
-      await supabase.from('sections').delete().eq('template_id', templateId);
-
-      // 3. Insert fresh sections & questions
-      for (let secIdx = 0; secIdx < formData.sections.length; secIdx++) {
-        const sec = formData.sections[secIdx];
-        const sectionId = `${templateId}-SEC-${secIdx + 1}`;
-        
-        // Insert section
-        const { error: sectionError } = await supabase
-          .from('sections')
-          .insert([{
-            section_id: sectionId,
-            template_id: templateId,
-            section_name: sec.section_name || `Section ${secIdx + 1}`,
-            section_order: secIdx + 1,
-            section_instructions: sec.section_instructions || ''
-          }]);
-
-        if (sectionError) throw sectionError;
-
-        // Prepare questions for this section
-        const validQuestions = sec.questions.filter(q => q.question_text.trim() !== '');
-        if (validQuestions.length > 0) {
-          const questionsToInsert = validQuestions.map((q, qIdx) => ({
-            question_id: `${sectionId}-Q${qIdx + 1}`,
-            template_id: templateId,
-            section_id: sectionId,
-            question_text: q.question_text,
-            question_order: qIdx + 1,
-            response_type: q.response_type,
-            required: q.is_required,
-            scored: q.scored,
-            max_score: Number(q.points) || 0,
-            failure_response: q.failure_response,
-            critical_question: q.critical_question,
-            na_allowed: q.na_allowed,
-            risk_category: q.risk_category,
-            comment_required: q.comment_required,
-            evidence_policy: q.evidence_policy
-          }));
-
-          // Insert questions
-          const { error: questionsError } = await supabase
-            .from('question_bank')
-            .insert(questionsToInsert);
-
-          if (questionsError) throw questionsError;
-        }
-      }
+      if (publishError) throw publishError;
+      console.info('Published template version:', publishedVersion?.template_version);
 
       setSubmitting(false);
       if (onUpdated) onUpdated();
@@ -357,30 +307,11 @@ export default function UpdateFormModal({ form, onClose, onUpdated }) {
                   )}
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className={labelCls}>Category</label>
-                    {isAddingCategory ? (
-                      <div className="flex gap-2">
-                        <input type="text" placeholder="Enter category name" className={sectionCls} value={newCategoryInput} onChange={(e) => setNewCategoryInput(e.target.value)} />
-                        <button type="button" onClick={handleAddCustomCategory} className="bg-indigo-600 text-white text-xs font-semibold px-3 rounded-xl hover:bg-indigo-700 shrink-0">Add</button>
-                        <button type="button" onClick={() => setIsAddingCategory(false)} className="text-xs font-semibold text-slate-400 hover:text-slate-600 px-2 shrink-0">Cancel</button>
-                      </div>
-                    ) : (
-                      <div className="flex gap-2">
-                        <select className={sectionCls} value={formData.template_category} onChange={(e) => handleChange('template_category', e.target.value)}>
-                          {categories.map((cat) => <option key={cat} value={cat}>{cat}</option>)}
-                        </select>
-                        <button type="button" onClick={() => setIsAddingCategory(true)} className="text-xs font-semibold text-indigo-600 hover:text-indigo-700 shrink-0 px-2 whitespace-nowrap">+ New</button>
-                      </div>
-                    )}
-                  </div>
-                  <div>
+                <div>
                     <label className={labelCls}>Audit Type</label>
                     <select className={sectionCls} value={formData.audit_type} onChange={(e) => handleChange('audit_type', e.target.value)}>
                       {AUDIT_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}
                     </select>
-                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
@@ -416,6 +347,40 @@ export default function UpdateFormModal({ form, onClose, onUpdated }) {
                     Section {currentSectionIdx + 1} of {totalSections}
                   </span>
                 </div>
+              </div>
+
+              <div className="rounded-2xl border border-indigo-100 bg-indigo-50/40 p-4">
+                <h4 className="mb-3 text-sm font-bold text-slate-800">Section {currentSectionIdx + 1} details</h4>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div>
+                    <label className={labelCls}>Section name</label>
+                    <input className={sectionCls} value={currentSection.section_name}
+                      onChange={(event) => updateSectionField(currentSectionIdx, 'section_name', event.target.value)} required />
+                  </div>
+                  <div>
+                    <label className={labelCls}>Category</label>
+                    <select className={sectionCls}
+                      value={categories.includes(currentSection.section_category) ? currentSection.section_category : '__custom__'}
+                      onChange={(event) => updateSectionField(currentSectionIdx, 'section_category', event.target.value === '__custom__' ? '' : event.target.value)}>
+                      {categories.map((category) => <option key={category} value={category}>{category}</option>)}
+                      <option value="__custom__">Add new category...</option>
+                    </select>
+                    {!categories.includes(currentSection.section_category) && (
+                      <input className={`${sectionCls} mt-2`} value={currentSection.section_category}
+                        onChange={(event) => updateSectionField(currentSectionIdx, 'section_category', event.target.value)}
+                        placeholder="Enter new category" required />
+                    )}
+                  </div>
+                  <div>
+                    <label className={labelCls}>Section weight (%)</label>
+                    <input className={sectionCls} type="number" min="0.01" max="100" step="0.01"
+                      value={currentSection.section_weight}
+                      onChange={(event) => updateSectionField(currentSectionIdx, 'section_weight', event.target.value)} required />
+                  </div>
+                </div>
+                <p className={`mt-3 text-xs font-semibold ${sectionDetailsValid ? 'text-emerald-700' : 'text-amber-700'}`}>
+                  Total section weight: {totalWeight}% / 100%
+                </p>
               </div>
 
               <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
@@ -479,7 +444,7 @@ export default function UpdateFormModal({ form, onClose, onUpdated }) {
                           </div>
                         )}
 
-                      <div className="grid grid-cols-3 gap-3">
+                      <div className="grid grid-cols-2 gap-3">
                         <div>
                           <label className="block text-[11px] font-semibold text-slate-400 mb-1">Answer Type</label>
                           <select className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-2 text-xs font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" value={q.response_type} onChange={(e) => updateQuestion(currentSectionIdx, qIdx, 'response_type', e.target.value)}>
@@ -492,13 +457,9 @@ export default function UpdateFormModal({ form, onClose, onUpdated }) {
                             {EVIDENCE_POLICIES.map((ep) => <option key={ep.value} value={ep.value}>{ep.label}</option>)}
                           </select>
                         </div>
-                        <div>
-                          <label className="block text-[11px] font-semibold text-slate-400 mb-1">Max Score</label>
-                          <input type="number" min="0" step="0.5" className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-2 text-xs font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" value={q.points} onChange={(e) => updateQuestion(currentSectionIdx, qIdx, 'points', e.target.value)} />
-                        </div>
                       </div>
 
-                      {getResponseScores(q.response_type, q.points).length > 0 && (
+                      {getResponseScores(q.response_type).length > 0 && (
                         <div className="rounded-xl border border-slate-200 bg-white p-3">
                           <p className="mb-1 text-xs font-semibold text-slate-700">
                             Response scoring
@@ -507,7 +468,7 @@ export default function UpdateFormModal({ form, onClose, onUpdated }) {
                             N/A responses are excluded from the score.
                           </p>
                           <div className="grid grid-cols-3 gap-2">
-                            {getResponseScores(q.response_type, q.points).map((item) => (
+                            {getResponseScores(q.response_type).map((item) => (
                               <div
                                 key={item.label}
                                 className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2"

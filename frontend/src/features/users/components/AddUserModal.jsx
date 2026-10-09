@@ -15,6 +15,41 @@ export default function AddUserModal({ locations = [], onClose, onCreated }) {
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [userCreated, setUserCreated] = useState(false);
+
+  const assignPanIndiaForms = async (auditor) => {
+    const publishedTemplateIds = new Set();
+    for (let start = 0; ; start += 1000) {
+      const { data, error: readError } = await supabase.from('schedules')
+        .select('template_id, schedule_id')
+        .eq('location_id', 'All Locations')
+        .range(start, start + 999);
+      if (readError) throw readError;
+      (data || []).forEach((row) => {
+        if (String(row.schedule_id || '').startsWith('PUB-')) publishedTemplateIds.add(row.template_id);
+      });
+      if ((data || []).length < 1000) break;
+    }
+
+    const createdAt = new Date().toISOString();
+    const assignments = [...publishedTemplateIds].map((templateId, index) => ({
+      schedule_id: `PUB-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 8)}`,
+      template_id: templateId,
+      location_id: 'All Locations',
+      city: '',
+      frequency: 'ONE_TIME',
+      run_date: createdAt.slice(0, 10),
+      due_date: null,
+      assigned_auditor: auditor.full_name,
+      assigned_auditor_email: auditor.email,
+      priority: 'MEDIUM',
+      created_at: createdAt
+    }));
+    if (assignments.length) {
+      const { error: assignmentError } = await supabase.from('schedules').insert(assignments);
+      if (assignmentError) throw assignmentError;
+    }
+  };
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -39,6 +74,7 @@ export default function AddUserModal({ locations = [], onClose, onCreated }) {
       updated_at: new Date().toISOString()
     };
 
+    let insertedUser = false;
     try {
       // 2. Insert into the local data store users table
       const { error: insertError } = await supabase
@@ -46,6 +82,12 @@ export default function AddUserModal({ locations = [], onClose, onCreated }) {
         .insert([payload]);
 
       if (insertError) throw insertError;
+
+      insertedUser = true;
+      setUserCreated(true);
+      if (String(payload.role).toUpperCase().includes('AUDITOR')) {
+        await assignPanIndiaForms(payload);
+      }
 
       setSubmitting(false);
       onCreated?.();
@@ -57,7 +99,9 @@ export default function AddUserModal({ locations = [], onClose, onCreated }) {
       if (err.code === '23505') {
         setError('A user with this email address already exists.');
       } else {
-        setError(err.message || 'Could not add user. Please try again.');
+        setError(insertedUser
+          ? `User added, but Pan India forms could not be assigned: ${err.message || 'unknown error'}. Use Assign auditors on the form.`
+          : err.message || 'Could not add user. Please try again.');
       }
       setSubmitting(false);
     }
@@ -157,12 +201,13 @@ export default function AddUserModal({ locations = [], onClose, onCreated }) {
             </button>
 
             <button
-              type="submit"
+              type={userCreated ? 'button' : 'submit'}
+              onClick={userCreated ? () => { onCreated?.(); onClose(); } : undefined}
               disabled={submitting}
               className="flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2 text-xs font-bold text-white shadow-md hover:bg-blue-700 disabled:opacity-50 transition-colors cursor-pointer"
             >
               {submitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-              <span>Add User</span>
+              <span>{userCreated ? 'Close' : 'Add User'}</span>
             </button>
           </div>
         </form>

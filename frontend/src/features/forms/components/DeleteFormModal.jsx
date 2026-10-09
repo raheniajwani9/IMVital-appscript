@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Loader2, X, Trash2, AlertTriangle, FileText } from 'lucide-react';
-import { supabase } from '../../../shared/lib/supabaseClient'; // Import local data store client
+import { supabase } from '../../../shared/lib/supabaseClient';
 
 export default function DeleteFormModal({ form, onClose, onDeleted }) {
   const [submitting, setSubmitting] = useState(false);
@@ -8,18 +8,21 @@ export default function DeleteFormModal({ form, onClose, onDeleted }) {
   
   const formId = form?.template_id || form?.template_code;
   const formName = form?.template_name || 'this form';
+  const versionLabel = form?.template_version || 'v1.0';
+  const isOriginalVersion = versionLabel === 'v1.0';
 
   const handleDelete = async () => {
+    if (isOriginalVersion) {
+      setError('v1.0 cannot be deleted. It is the original version of this form.');
+      return;
+    }
     setSubmitting(true);
     setError('');
 
     try {
-      // 1. Delete from templates table. 
-      // Assuming 'ON DELETE CASCADE' is set up for sections/questions in local data store
-      const { error: deleteError } = await supabase
-        .from('templates')
-        .delete()
-        .eq('template_id', formId);
+      const { error: deleteError } = await supabase.rpc('delete_current_template_version', {
+        p_template_id: formId
+      });
 
       if (deleteError) throw deleteError;
 
@@ -28,8 +31,10 @@ export default function DeleteFormModal({ form, onClose, onDeleted }) {
       onClose();
 
     } catch (err) {
-      console.error('Error deleting form:', err);
-      setError(err.message || 'Failed to delete the form.');
+      console.error('Error deleting form version:', err);
+      setError(err.code === 'PGRST202'
+        ? 'Version deletion is not installed in Supabase yet. Apply the delete_current_template_version migration.'
+        : err.message || 'Failed to delete this version.');
       setSubmitting(false);
     }
   };
@@ -42,7 +47,7 @@ export default function DeleteFormModal({ form, onClose, onDeleted }) {
             <div className="w-9 h-9 rounded-xl bg-rose-50 flex items-center justify-center">
               <Trash2 className="w-5 h-5 text-rose-500" />
             </div>
-            <h2 className="text-base font-bold text-slate-900">Delete Form</h2>
+            <h2 className="text-base font-bold text-slate-900">Delete Current Version</h2>
           </div>
           <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-600">
             <X className="w-5 h-5" />
@@ -53,8 +58,11 @@ export default function DeleteFormModal({ form, onClose, onDeleted }) {
           <div className="flex items-start gap-3 p-3.5 bg-amber-50/60 border border-amber-200/60 rounded-xl">
             <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
             <p className="text-sm text-slate-600 leading-relaxed">
-              Are you sure you want to delete <span className="font-semibold text-slate-800">"{formName}"</span>?
-              This will permanently remove all sections and questions. This action cannot be undone.
+              {isOriginalVersion ? (
+                <>v1.0 cannot be deleted. It is the original version of this form.</>
+              ) : (
+                <>Delete <span className="font-semibold text-slate-800">{versionLabel}</span> of "{formName}"? The previous version will become current. This cannot be undone.</>
+              )}
             </p>
           </div>
 
@@ -62,7 +70,7 @@ export default function DeleteFormModal({ form, onClose, onDeleted }) {
             <FileText className="w-4 h-4 text-slate-400 shrink-0" />
             <div className="min-w-0">
               <div className="text-xs font-semibold text-slate-700 truncate">{formName}</div>
-              <div className="text-[10px] text-slate-400">ID: {formId}</div>
+              <div className="text-[10px] text-slate-400">ID: {formId} · Current version: {versionLabel}</div>
             </div>
           </div>
 
@@ -89,7 +97,7 @@ export default function DeleteFormModal({ form, onClose, onDeleted }) {
             className="px-5 py-2 rounded-xl text-xs font-bold bg-rose-600 text-white hover:bg-rose-700 flex items-center gap-2 shadow-md transition-colors disabled:opacity-60"
           >
             {submitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-            <span>{submitting ? 'Deleting...' : 'Delete Form'}</span>
+            <span>{submitting ? 'Deleting...' : 'Delete Current Version'}</span>
           </button>
         </div>
       </div>
