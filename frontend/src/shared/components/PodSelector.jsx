@@ -5,6 +5,9 @@ import {
   cityOptions,
   filterPods,
   podLabel,
+  podKey,
+  podCluster,
+  podCity,
   restrictLocations
 } from '../config/clusters';
 
@@ -46,9 +49,9 @@ export default function PodSelector({
   // Keep the current selection visible even when the search filters it out
   const renderPods = useMemo(() => {
     if (isAll) return pods;
-    if (pods.some((p) => String(p.location_id) === String(locationId))) return pods;
+    if (pods.some((p) => String(podKey(p)) === String(locationId))) return pods;
 
-    const selected = available.find((p) => String(p.location_id) === String(locationId));
+    const selected = available.find((p) => String(podKey(p)) === String(locationId));
     return selected ? [selected, ...pods] : pods;
   }, [pods, available, locationId, isAll]);
 
@@ -66,11 +69,12 @@ export default function PodSelector({
       return;
     }
 
-    const pod = available.find((p) => String(p.location_id) === String(next));
+    const pod = available.find((p) => String(podKey(p)) === String(next));
     emit({
-      pod_id: pod?.pod_id || '',
+      pod_id: podKey(pod),
       location_id: next,
-      city: pod?.city || city
+      city: podCity(pod) || city,
+      cluster: podCluster(pod) || cluster
     });
   };
 
@@ -80,7 +84,7 @@ export default function PodSelector({
   };
 
   const selectClass =
-    'w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 pl-8 font-semibold text-slate-800 disabled:opacity-50';
+    'w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 pl-8 text-sm font-semibold text-slate-800 disabled:opacity-50';
 
   return (
     <div className="space-y-2.5 rounded-2xl border border-slate-200 bg-slate-50/40 p-3">
@@ -109,7 +113,7 @@ export default function PodSelector({
           value={search}
           onChange={(event) => setSearch(event.target.value)}
           placeholder="Search POD ID or name directly..."
-          className="w-full rounded-xl border border-slate-200 bg-white p-2.5 pl-8 font-semibold text-slate-800 placeholder-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+          className="w-full rounded-xl border border-slate-200 bg-white p-2.5 pl-8 text-sm font-semibold text-slate-800 placeholder-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
         />
       </div>
 
@@ -174,15 +178,16 @@ export default function PodSelector({
                   : 'All Locations'}
               </option>
             )}
+            {!allowAll && <option value={ALL} disabled>Select a POD</option>}
             {renderPods.map((pod) => (
               <option
-                key={pod.pod_id || `${pod.cluster}-${pod.city}-${pod.location_id}`}
-                value={pod.location_id}
+                key={podKey(pod)}
+                value={podKey(pod)}
               >
                 {podLabel(pod)}
                 {pod.pod_code ? ` (${pod.pod_code})` : ''}
                 {' — '}
-                {pod.city}
+                {podCity(pod)}
               </option>
             ))}
           </select>

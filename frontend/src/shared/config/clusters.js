@@ -156,6 +156,14 @@ export function podKey(pod) {
   return getPodId(pod);
 }
 
+export function podCluster(pod) {
+  return getCluster(pod);
+}
+
+export function podCity(pod) {
+  return getCity(pod);
+}
+
 export function keepAllowed(selectedList = [], allowedList = []) {
   const allowedSet = new Set(allowedList.map(lower));
   return selectedList.filter(item => allowedSet.has(lower(item)));
