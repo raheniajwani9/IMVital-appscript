@@ -6,11 +6,14 @@ import {
   Search, ChevronDown, ArrowDownAZ, ArrowUpAZ, Clock as ClockIcon, Check, AlertTriangle 
 } from 'lucide-react';
 import CreateFormModal from '../../../features/forms/components/CreateFormModal';
+import FormVisibilityModal from '../../../features/forms/components/FormVisibilityModal';
+import { visibilityFor, visibilityLabel } from '../../../features/forms/api/formVisibility';
 import UpdateFormModal from '../../../features/forms/components/UpdateFormModal';
 import DeleteFormModal from '../../../features/forms/components/DeleteFormModal';
+import AssignFormAuditorsModal from '../../../features/forms/components/AssignFormAuditorsModal';
 
 // UPDATED: Now accepts templates, sections, and questions as separate arrays
-export default function FormsView({ templates = [], sections = [], questions = [], data = [], onRefreshData }) {
+export default function FormsView({ templates = [], sections = [], questions = [], schedules = [], formVisibility = [], locations = [], users = [], data = [], currentUser, onRefreshData }) {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState('latest');
@@ -56,6 +59,7 @@ export default function FormsView({ templates = [], sections = [], questions = [
         effective_date: formattedDate,
         template_status: 'Published',
         template_version: t.template_version || 'v1.0',
+        current_version_id: t.current_version_id || null,
         estimated_minutes: Number(t.estimated_minutes) || 15,
         sections: []
       };
@@ -64,10 +68,12 @@ export default function FormsView({ templates = [], sections = [], questions = [
     // B. Attach Sections to Templates
     sList.forEach((s) => {
       const parentForm = map[s.template_id];
-      if (parentForm) {
+      if (parentForm && (!parentForm.current_version_id || s.template_version_id === parentForm.current_version_id)) {
         parentForm.sections.push({
           section_id: s.section_id,
           section_name: s.section_name || 'General Inspection',
+          section_category: s.section_category || '',
+          section_weight: s.section_weight,
           section_order: Number(s.section_order) || parentForm.sections.length + 1,
           section_instructions: s.section_instructions || '',
           questions: []
@@ -78,7 +84,7 @@ export default function FormsView({ templates = [], sections = [], questions = [
     // C. Attach Questions to Sections
     qList.forEach((q) => {
       const parentForm = map[q.template_id];
-      if (parentForm) {
+      if (parentForm && (!parentForm.current_version_id || q.template_version_id === parentForm.current_version_id)) {
         // Find the matching section, or fallback to the first section
         const section = parentForm.sections.find(sec => sec.section_id === q.section_id) || parentForm.sections[0];
         
@@ -172,12 +178,16 @@ export default function FormsView({ templates = [], sections = [], questions = [
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [editingForm, setEditingForm] = useState(null);
   const [deletingForm, setDeletingForm] = useState(null);
+  const [assigningForm, setAssigningForm] = useState(null);
+  const [visibilityForm, setVisibilityForm] = useState(null);
 
   useEffect(() => { setCurrentQuestionPage(1); }, [previewForm]);
 
   const toggleMenu = (e, id) => { e.stopPropagation(); setActiveMenuId(activeMenuId === id ? null : id); };
   const handleEdit = (e, form) => { e.stopPropagation(); setActiveMenuId(null); setEditingForm(form); };
   const handleDelete = (e, form) => { e.stopPropagation(); setActiveMenuId(null); setDeletingForm(form); };
+  const handleAssign = (e, form) => { e.stopPropagation(); setActiveMenuId(null); setAssigningForm(form); };
+  const handleVisibility = (e, form) => { e.stopPropagation(); setActiveMenuId(null); setVisibilityForm(form); };
 
   const openPreview = (form) => { setPreviewForm(form); setActiveMenuId(null); };
   const closePreview = () => { setPreviewForm(null); };
@@ -316,6 +326,8 @@ export default function FormsView({ templates = [], sections = [], questions = [
                   const totalQuestions = form.sections?.reduce((a, s) => a + (s.questions?.length || 0), 0) || 0;
                   const isMenuOpen = activeMenuId === itemId;
                   const isPublished = form.template_status === 'Published';
+                  const hasAssignments = schedules.some((schedule) => String(schedule.template_id) === String(itemId));
+                  const visibility = visibilityFor(formVisibility, itemId);
 
                   return (
                     <div
@@ -337,6 +349,7 @@ export default function FormsView({ templates = [], sections = [], questions = [
                           </span>
                         </div>
                         <p className="text-xs text-slate-500 line-clamp-1 leading-relaxed">{form.template_description || 'Standard operational procedure checklist.'}</p>
+                        <p className={`mt-1 text-[11px] font-semibold ${visibility?.mode === 'HIDDEN_ALL' ? 'text-rose-600' : visibility?.mode === 'HIDDEN_SELECTED' ? 'text-amber-600' : 'text-emerald-600'}`}>{visibilityLabel(visibility)}</p>
                       </div>
 
                       <div className="hidden lg:flex items-center gap-3 text-[11px] text-slate-400 shrink-0">
@@ -346,14 +359,26 @@ export default function FormsView({ templates = [], sections = [], questions = [
                       </div>
 
                       <div className="flex items-center gap-0.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={(event) => handleVisibility(event, form)}
+                          title={`Manage visibility for ${form.template_name}`}
+                          aria-label={`Manage visibility for ${form.template_name}`}
+                          className="mr-1 flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100"
+                        >
+                          <ShieldCheck className="h-3.5 w-3.5" />
+                          <span className="hidden sm:inline">Visibility</span>
+                        </button>
                         <div className="relative">
                           <button onClick={(e) => toggleMenu(e, itemId)} className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition-colors">
                             <MoreHorizontal className="w-4 h-4" />
                           </button>
                           {isMenuOpen && (
-                            <div className="absolute right-0 top-8 w-32 bg-white rounded-xl border border-slate-200 shadow-lg py-1 z-20" onClick={(e) => e.stopPropagation()}>
+                            <div className="absolute right-0 top-8 w-48 bg-white rounded-xl border border-slate-200 shadow-lg py-1 z-20" onClick={(e) => e.stopPropagation()}>
                               <button onClick={(e) => handleEdit(e, form)} className="w-full flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors"><Pencil className="w-3.5 h-3.5 text-indigo-500" /> Edit</button>
-                              <button onClick={(e) => handleDelete(e, form)} className="w-full flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50 transition-colors"><Trash2 className="w-3.5 h-3.5 text-rose-500" /> Delete</button>
+                              <button onClick={(e) => handleAssign(e, form)} className="w-full flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-indigo-600 hover:bg-indigo-50 transition-colors"><User className="w-3.5 h-3.5" /> Assign auditors</button>
+                              <button onClick={(e) => handleVisibility(e, form)} className="w-full flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors"><ShieldCheck className="w-3.5 h-3.5 text-indigo-500" /> Manage visibility</button>
+                              <button onClick={(e) => handleDelete(e, form)} className="w-full flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50 transition-colors"><Trash2 className="w-3.5 h-3.5 text-rose-500" /> Delete current version</button>
                             </div>
                           )}
                         </div>
@@ -531,13 +556,21 @@ export default function FormsView({ templates = [], sections = [], questions = [
 
       {/* Modals */}
       {isCreateOpen && (
-        <CreateFormModal existingForms={groupedForms} onClose={() => setIsCreateOpen(false)} onCreated={() => { setPreviewForm(null); setFormCardPage(1); if (onRefreshData) onRefreshData(); }} />
+        <CreateFormModal existingForms={groupedForms} locations={locations} users={users} currentUser={currentUser} onClose={() => setIsCreateOpen(false)} onCreated={() => { setPreviewForm(null); setFormCardPage(1); if (onRefreshData) onRefreshData(); }} />
       )}
       {editingForm && (
-        <UpdateFormModal form={editingForm} onClose={() => setEditingForm(null)} onUpdated={() => { if (onRefreshData) onRefreshData(); }} />
+        <UpdateFormModal form={editingForm} currentUser={currentUser} onClose={() => setEditingForm(null)} onUpdated={() => { if (onRefreshData) onRefreshData(); }} />
       )}
       {deletingForm && (
         <DeleteFormModal form={deletingForm} onClose={() => setDeletingForm(null)} onDeleted={() => { setPreviewForm(null); if (onRefreshData) onRefreshData(); }} />
+      )}
+      {assigningForm && (
+        <AssignFormAuditorsModal form={assigningForm} users={users} locations={locations} onClose={() => setAssigningForm(null)} onAssigned={() => onRefreshData?.()} />
+      )}
+      {visibilityForm && (
+        <FormVisibilityModal form={visibilityForm} locations={locations}
+          visibility={visibilityFor(formVisibility, visibilityForm.template_id)}
+          onClose={() => setVisibilityForm(null)} onSaved={() => onRefreshData?.()} />
       )}
     </div>
   );

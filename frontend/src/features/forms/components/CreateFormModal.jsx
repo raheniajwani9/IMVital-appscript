@@ -15,6 +15,10 @@ import {
   AlertTriangle
 } from 'lucide-react';
 import { supabase } from '../../../shared/lib/supabaseClient';
+import { createLegacyTemplate, isMissingTemplateFunction, saveCurrentSectionDetails } from '../api/templatePersistence';
+import { publishAssignments } from '../api/publishAssignments';
+import PodScopePicker from '../../../shared/components/PodScopePicker';
+import { userClusters, podsForScope, podKey } from '../../../shared/config/clusters';
 
 const RESPONSE_TYPES = [
   { value: 'YES_NO', label: 'Yes / No' },
@@ -77,7 +81,7 @@ const newQuestion = () => ({
   response_type: 'YES_NO',
   evidence_policy: 'OPTIONAL',
   allowed_evidence: [],
-  points: 5,
+  points: 1,
   is_required: true,
   instructions: '',
   showInstructions: false,
@@ -90,8 +94,8 @@ const newQuestion = () => ({
   comment_required: 'NEVER'
 });
 
-const getResponseOptions = (responseType, maxScore) => {
-  const score = Number(maxScore) || 0;
+const getResponseOptions = (responseType) => {
+  const score = 1;
 
   switch (responseType) {
     case 'YES_NO':
@@ -119,6 +123,9 @@ const getResponseOptions = (responseType, maxScore) => {
 
 export default function CreateFormModal({
   existingForms = [],
+  locations = [],
+  users = [],
+  currentUser,
   onClose,
   onCreated
 }) {
@@ -131,22 +138,50 @@ export default function CreateFormModal({
       'Cold Chain Compliance',
       'Safety & Maintenance'
     ];
-    const extracted = existingForms
-      .map((form) => form.template_category)
-      .filter(Boolean);
+    const extracted = existingForms.flatMap((form) =>
+      (form.sections || []).map((section) => section.section_category)
+    ).filter(Boolean);
 
     return Array.from(new Set([...defaultCats, ...extracted]));
   }, [existingForms]);
 
-  const [categories, setCategories] = useState(dynamicCategories);
-  const [isAddingCategory, setIsAddingCategory] = useState(false);
-  const [newCategoryInput, setNewCategoryInput] = useState('');
+  const categories = dynamicCategories;
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [savedTemplateId, setSavedTemplateId] = useState(null);
+  const [publishScope, setPublishScope] = useState('PAN_INDIA');
+  const [selectedAuditorEmail, setSelectedAuditorEmail] = useState('');
+  const [scope, setScope] = useState({ clusters: [], cities: [], pods: [] });
+
+  const auditors = useMemo(
+    () => users.filter((user) =>
+      String(user.role || '').toLowerCase().includes('auditor') &&
+      String(user.active).toLowerCase() !== 'false' &&
+      Boolean(user.email)
+    ),
+    [users]
+  );
+  const selectedAuditor = auditors.find(
+    (user) => String(user.email || '').toLowerCase() === selectedAuditorEmail.toLowerCase()
+  );
+  const allowedClusters = useMemo(() => userClusters(selectedAuditor), [selectedAuditor]);
+  const selectedPods = useMemo(() => {
+    if (!scope.pods.length) return [];
+    const selected = new Set(scope.pods.map((id) => String(id).toLowerCase()));
+    return podsForScope(locations, { clusters: scope.clusters, cities: scope.cities })
+      .filter((pod) => selected.has(podKey(pod).toLowerCase()));
+  }, [locations, scope]);
+
+  const handleAuditorSelect = (email) => {
+    const nextAuditor = auditors.find((user) => user.email === email);
+    const clusters = userClusters(nextAuditor);
+    setSelectedAuditorEmail(email);
+    setScope({ clusters, cities: [], pods: [] });
+  };
 
   const [formData, setFormData] = useState({
     template_name: '',
-    template_category: dynamicCategories[0] || 'Operations',
+    template_category: 'Operations',
     template_description: '',
     template_instructions: '',
     audit_type: 'Internal Audit',
@@ -159,6 +194,8 @@ export default function CreateFormModal({
     sections: [
       {
         section_name: 'General Inspection',
+        section_category: dynamicCategories[0] || 'Operations',
+        section_weight: 100,
         section_order: 1,
         section_instructions: '',
         questions: [newQuestion()]
@@ -168,6 +205,11 @@ export default function CreateFormModal({
 
   const isStep1Valid = formData.template_name.trim().length > 0;
   const totalSections = formData.sections.length;
+  const totalWeight = formData.sections.reduce((total, section) => total + (Number(section.section_weight) || 0), 0);
+  const sectionDetailsValid = formData.sections.every((section) =>
+    section.section_name.trim() && section.section_category.trim() &&
+    section.section_weight !== '' && Number(section.section_weight) > 0 && Number(section.section_weight) <= 100
+  ) && Math.abs(totalWeight - 100) < 0.01;
   const totalQuestions = formData.sections.reduce(
     (count, section) => count + section.questions.length,
     0
@@ -193,23 +235,7 @@ export default function CreateFormModal({
     section.questions.some((question) => question.question_text.trim() !== '')
   );
 
-  const canSaveForm = isStep1Valid && hasAnyQuestions;
-
-  const handleAddCustomCategory = () => {
-    const addedCategory = newCategoryInput.trim();
-    if (!addedCategory) return;
-
-    if (!categories.includes(addedCategory)) {
-      setCategories((previous) => [...previous, addedCategory]);
-    }
-
-    setFormData((previous) => ({
-      ...previous,
-      template_category: addedCategory
-    }));
-    setNewCategoryInput('');
-    setIsAddingCategory(false);
-  };
+  const canSaveForm = isStep1Valid && hasAnyQuestions && sectionDetailsValid;
 
   const handleChange = (field, value) => {
     setFormData((previous) => ({ ...previous, [field]: value }));
@@ -218,6 +244,8 @@ export default function CreateFormModal({
   const addSection = () => {
     const newSection = {
       section_name: `Section ${totalSections + 1}`,
+      section_category: formData.sections[formData.sections.length - 1]?.section_category || categories[0],
+      section_weight: 0,
       section_order: totalSections + 1,
       section_instructions: '',
       questions: [newQuestion()]
@@ -240,12 +268,12 @@ export default function CreateFormModal({
     });
   };
 
-  const updateSectionName = (sectionIndex, value) => {
+  const updateSectionField = (sectionIndex, field, value) => {
     setFormData((previous) => ({
       ...previous,
       sections: previous.sections.map((section, index) =>
         index === sectionIndex
-          ? { ...section, section_name: value }
+          ? { ...section, [field]: value }
           : section
       )
     }));
@@ -354,6 +382,16 @@ export default function CreateFormModal({
 
   const handleSubmit = async (event) => {
     if (event?.preventDefault) event.preventDefault();
+    if (publishScope === 'TARGETED' && (!selectedAuditor || !selectedPods.length)) {
+      setError('Select an auditor and at least one location for a targeted form.');
+      setStep(0);
+      return;
+    }
+    if (publishScope === 'PAN_INDIA' && auditors.length === 0) {
+      setError('There are no active auditors to publish this form to.');
+      setStep(0);
+      return;
+    }
     if (!isStep1Valid) {
       setStep(0);
       return;
@@ -362,10 +400,16 @@ export default function CreateFormModal({
       setStep(1);
       return;
     }
+    if (!sectionDetailsValid) {
+      setError('Enter a name and category for every section, and make section weights total 100%.');
+      setStep(1);
+      return;
+    }
 
     setError('');
     setSubmitting(true);
-    const templateId = `TMP-${Date.now()}`;
+    const templateId = savedTemplateId || `TMP-${Date.now()}`;
+    let templateSaved = Boolean(savedTemplateId);
 
     try {
       const storedUserString = localStorage.getItem('imvitals_user');
@@ -380,80 +424,49 @@ export default function CreateFormModal({
         }
       }
 
-      const { error: templateError } = await supabase
-        .from('templates')
-        .insert([
+      if (!templateSaved) {
+        const { data: createdVersion, error: createError } = await supabase.rpc(
+          'create_template_with_initial_version',
           {
-            template_id: templateId,
-            template_name: formData.template_name,
-            template_category: formData.template_category,
-            template_description: formData.template_description,
-            template_status: 'Published',
-            template_version: 'v1.0',
-            estimated_minutes: Number(formData.estimated_minutes) || 15,
-            active: true,
-            created_by: creatorName,
-            last_edited_by: creatorName
-          }
-        ]);
-
-      if (templateError) throw templateError;
-
-      for (let sectionIndex = 0; sectionIndex < formData.sections.length; sectionIndex += 1) {
-        const section = formData.sections[sectionIndex];
-        const sectionId = `${templateId}-SEC-${sectionIndex + 1}`;
-
-        const { error: sectionError } = await supabase
-          .from('sections')
-          .insert([
-            {
-              section_id: sectionId,
+            p_template: {
               template_id: templateId,
-              section_name: section.section_name || `Section ${sectionIndex + 1}`,
-              section_order: sectionIndex + 1,
-              section_instructions: section.section_instructions || ''
-            }
-          ]);
-
-        if (sectionError) throw sectionError;
-
-        const validQuestions = section.questions.filter(
-          (question) => question.question_text.trim() !== ''
+              template_name: formData.template_name,
+              template_category: formData.template_category,
+              template_description: formData.template_description,
+              estimated_minutes: Number(formData.estimated_minutes) || 15
+            },
+            p_sections: formData.sections,
+            p_actor: creatorName
+          }
         );
 
-        if (validQuestions.length > 0) {
-          const questionsToInsert = validQuestions.map((question, questionIndex) => ({
-            question_id: `${sectionId}-Q${questionIndex + 1}`,
-            template_id: templateId,
-            section_id: sectionId,
-            question_text: question.question_text,
-            question_order: questionIndex + 1,
-            response_type: question.response_type,
-            required: question.is_required,
-            scored: question.scored,
-            max_score: Number(question.points) || 0,
-            failure_response: question.failure_response,
-            critical_question: question.critical_question,
-            na_allowed: question.na_allowed,
-            risk_category: question.risk_category,
-            comment_required: question.comment_required,
-            evidence_policy: question.evidence_policy
-          }));
-
-          const { error: questionsError } = await supabase
-            .from('question_bank')
-            .insert(questionsToInsert);
-
-          if (questionsError) throw questionsError;
+        if (createError) {
+          if (!isMissingTemplateFunction(createError, 'create_template_with_initial_version')) {
+            throw createError;
+          }
+          await createLegacyTemplate(supabase, templateId, formData, creatorName);
+        } else {
+          console.info('Created template version:', createdVersion?.template_version);
         }
+        templateSaved = true;
+        setSavedTemplateId(templateId);
       }
+
+      await saveCurrentSectionDetails(supabase, templateId, formData.sections);
+
+      await publishAssignments({
+        supabase, templateId, publishScope, locations, auditors, selectedAuditor, selectedPods
+      });
 
       setSubmitting(false);
       onCreated?.();
       onClose();
     } catch (submitError) {
       console.error('Error creating form:', submitError);
-      setError(submitError.message || 'Failed to create form.');
+      setError(templateSaved
+        ? `Form saved, but publishing could not finish: ${submitError.message || 'Unknown error'}. Apply the section-details migration if it has not been applied, then retry Publish.`
+        : submitError.message || 'Failed to create form.');
+      if (templateSaved) onCreated?.();
       setSubmitting(false);
     }
   };
@@ -556,6 +569,52 @@ export default function CreateFormModal({
                 </span>
               </div>
 
+              <div className="grid gap-3 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => setPublishScope('PAN_INDIA')}
+                  className={`rounded-xl border p-4 text-left transition-colors ${publishScope === 'PAN_INDIA' ? 'border-indigo-500 bg-indigo-50 ring-1 ring-indigo-200' : 'border-slate-200 bg-white hover:border-slate-300'}`}
+                >
+                  <span className="block text-sm font-bold text-slate-800">Publish Pan India</span>
+                  <span className="mt-1 block text-xs text-slate-500">Make this form available to all auditors across locations.</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPublishScope('TARGETED')}
+                  className={`rounded-xl border p-4 text-left transition-colors ${publishScope === 'TARGETED' ? 'border-indigo-500 bg-indigo-50 ring-1 ring-indigo-200' : 'border-slate-200 bg-white hover:border-slate-300'}`}
+                >
+                  <span className="block text-sm font-bold text-slate-800">Publish for a specific scope</span>
+                  <span className="mt-1 block text-xs text-slate-500">Choose an auditor, clusters, cities, and locations.</span>
+                </button>
+              </div>
+
+              {publishScope === 'TARGETED' && (
+                <div className="space-y-3 rounded-2xl border border-indigo-100 bg-indigo-50/40 p-4">
+                  <label className={labelCls}>Auditor</label>
+                  <select
+                    required
+                    className={sectionCls}
+                    value={selectedAuditorEmail}
+                    onChange={(event) => handleAuditorSelect(event.target.value)}
+                  >
+                    <option value="">Select an auditor</option>
+                    {auditors.map((auditor) => (
+                      <option key={auditor.user_id || auditor.email} value={auditor.email}>
+                        {auditor.full_name || auditor.name || auditor.email}
+                      </option>
+                    ))}
+                  </select>
+                  <PodScopePicker
+                    locations={locations}
+                    allowedClusters={allowedClusters}
+                    value={scope}
+                    onChange={setScope}
+                    auditorName={selectedAuditor?.full_name || selectedAuditor?.name || ''}
+                    label="Cluster, city, and location scope"
+                  />
+                </div>
+              )}
+
               <div className="space-y-4 rounded-2xl border border-slate-100 bg-slate-50/60 p-4">
                 <div>
                   <label className={labelCls}>
@@ -578,62 +637,7 @@ export default function CreateFormModal({
                   )}
                 </div>
 
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <div>
-                    <label className={labelCls}>Category</label>
-                    {isAddingCategory ? (
-                      <div className="flex gap-2">
-                        <input
-                          type="text"
-                          placeholder="Enter category name"
-                          className={sectionCls}
-                          value={newCategoryInput}
-                          onChange={(event) =>
-                            setNewCategoryInput(event.target.value)
-                          }
-                        />
-                        <button
-                          type="button"
-                          onClick={handleAddCustomCategory}
-                          className="shrink-0 rounded-xl bg-indigo-600 px-3 text-xs font-semibold text-white hover:bg-indigo-700"
-                        >
-                          Add
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setIsAddingCategory(false)}
-                          className="shrink-0 px-2 text-xs font-semibold text-slate-400 hover:text-slate-600"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="flex gap-2">
-                        <select
-                          className={sectionCls}
-                          value={formData.template_category}
-                          onChange={(event) =>
-                            handleChange('template_category', event.target.value)
-                          }
-                        >
-                          {categories.map((category) => (
-                            <option key={category} value={category}>
-                              {category}
-                            </option>
-                          ))}
-                        </select>
-                        <button
-                          type="button"
-                          onClick={() => setIsAddingCategory(true)}
-                          className="shrink-0 whitespace-nowrap px-2 text-xs font-semibold text-indigo-600 hover:text-indigo-700"
-                        >
-                          + New
-                        </button>
-                      </div>
-                    )}
-                  </div>
-
-                  <div>
+                <div>
                     <label className={labelCls}>Audit Type</label>
                     <select
                       className={sectionCls}
@@ -648,8 +652,9 @@ export default function CreateFormModal({
                         </option>
                       ))}
                     </select>
-                  </div>
+                </div>
 
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div>
                     <label className={labelCls}>Estimated Minutes</label>
                     <input
@@ -716,6 +721,41 @@ export default function CreateFormModal({
                 </span>
               </div>
 
+              <div className="rounded-2xl border border-indigo-100 bg-indigo-50/40 p-4">
+                <h4 className="mb-3 text-sm font-bold text-slate-800">Section {currentSectionIdx + 1} details</h4>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div>
+                    <label className={labelCls}>Section name</label>
+                    <input className={sectionCls} value={currentSection.section_name}
+                      onChange={(event) => updateSectionField(currentSectionIdx, 'section_name', event.target.value)}
+                      placeholder="e.g. Store hygiene" required />
+                  </div>
+                  <div>
+                    <label className={labelCls}>Category</label>
+                    <select className={sectionCls}
+                      value={categories.includes(currentSection.section_category) ? currentSection.section_category : '__custom__'}
+                      onChange={(event) => updateSectionField(currentSectionIdx, 'section_category', event.target.value === '__custom__' ? '' : event.target.value)}>
+                      {categories.map((category) => <option key={category} value={category}>{category}</option>)}
+                      <option value="__custom__">Add new category...</option>
+                    </select>
+                    {!categories.includes(currentSection.section_category) && (
+                      <input className={`${sectionCls} mt-2`} value={currentSection.section_category}
+                        onChange={(event) => updateSectionField(currentSectionIdx, 'section_category', event.target.value)}
+                        placeholder="Enter new category" required />
+                    )}
+                  </div>
+                  <div>
+                    <label className={labelCls}>Section weight (%)</label>
+                    <input className={sectionCls} type="number" min="0.01" max="100" step="0.01"
+                      value={currentSection.section_weight}
+                      onChange={(event) => updateSectionField(currentSectionIdx, 'section_weight', event.target.value)} required />
+                  </div>
+                </div>
+                <p className={`mt-3 text-xs font-semibold ${sectionDetailsValid ? 'text-emerald-700' : 'text-amber-700'}`}>
+                  Total section weight: {totalWeight}% / 100%
+                </p>
+              </div>
+
               <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
                 <div className="flex items-center gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3">
                   {totalSections > 1 && (
@@ -732,10 +772,7 @@ export default function CreateFormModal({
 
                 <div className="space-y-3 p-4">
                   {currentSection.questions.map((question, questionIndex) => {
-                    const responseOptions = getResponseOptions(
-                      question.response_type,
-                      question.points
-                    );
+                    const responseOptions = getResponseOptions(question.response_type);
 
                     return (
                       <div
@@ -847,7 +884,7 @@ export default function CreateFormModal({
                           </div>
                         )}
 
-                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                           <div>
                             <label className="mb-1 block text-[11px] font-semibold text-slate-400">
                               Answer Type
@@ -896,26 +933,6 @@ export default function CreateFormModal({
                             </select>
                           </div>
 
-                          <div>
-                            <label className="mb-1 block text-[11px] font-semibold text-slate-400">
-                              Max Score
-                            </label>
-                            <input
-                              type="number"
-                              min="0"
-                              step="0.5"
-                              className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs font-medium text-slate-700 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                              value={question.points}
-                              onChange={(event) =>
-                                updateQuestion(
-                                  currentSectionIdx,
-                                  questionIndex,
-                                  'points',
-                                  event.target.value
-                                )
-                              }
-                            />
-                          </div>
                         </div>
 
                         {responseOptions.length > 0 && (
@@ -1211,7 +1228,7 @@ export default function CreateFormModal({
                   className="flex items-center gap-2 rounded-xl bg-indigo-600 px-6 py-2.5 text-sm font-bold text-white shadow-md shadow-indigo-500/20 transition-all hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
-                  {submitting ? 'Saving...' : 'Save Form'}
+                  {submitting ? 'Publishing...' : savedTemplateId ? 'Retry Publish' : 'Publish'}
                 </button>
               </>
             )}

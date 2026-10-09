@@ -8,7 +8,6 @@ const ITEMS_PER_PAGE = 8;
 
 const STATUS_STYLES = {
   SCHEDULED: { label: 'Scheduled', className: 'bg-slate-100 text-slate-600 border-slate-200' },
-  NOT_STARTED: { label: 'Not Started', className: 'bg-slate-100 text-slate-600 border-slate-200' },
   IN_PROGRESS: { label: 'In Progress', className: 'bg-amber-50 text-amber-700 border-amber-200' },
   SUBMITTED: { label: 'Submitted', className: 'bg-emerald-50 text-emerald-700 border-emerald-200' }
 };
@@ -54,7 +53,6 @@ const getAuditName = (item, templates, template = getTemplate(templates, item)) 
 };
 
 export default function MyAuditsView({ assignments = [], audits = [], templates = [], currentUser, onStartAudit, onRefreshData }) {
-  console.log(assignments);
   const auditList = assignments.length > 0 ? assignments : audits;
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -63,10 +61,10 @@ export default function MyAuditsView({ assignments = [], audits = [], templates 
   const [currentPage, setCurrentPage] = useState(1);
 
   const stats = useMemo(() => {
-    const pending = auditList.filter((a) => (a.status || a.audit_status) === 'SCHEDULED' || (a.status || a.audit_status) === 'NOT_STARTED').length;
-    const inProgress = auditList.filter((a) => (a.status || a.audit_status) === 'IN_PROGRESS').length;
-    const submitted = auditList.filter((a) => (a.status || a.audit_status) === 'SUBMITTED').length;
-    const overdue = auditList.filter((a) => a.is_overdue && (a.status || a.audit_status) !== 'SUBMITTED').length;
+    const pending = auditList.filter((a) => ['SCHEDULED', 'NOT_STARTED'].includes(a.audit_status)).length;
+    const inProgress = auditList.filter((a) => a.audit_status === 'IN_PROGRESS').length;
+    const submitted = auditList.filter((a) => a.audit_status === 'SUBMITTED').length;
+    const overdue = auditList.filter((a) => a.is_overdue && a.audit_status !== 'SUBMITTED').length;
     return { pending, inProgress, submitted, overdue };
   }, [auditList]);
 
@@ -74,7 +72,7 @@ export default function MyAuditsView({ assignments = [], audits = [], templates 
     const q = searchQuery.trim().toLowerCase();
 
     const filteredResult = auditList.filter((a) => {
-      const currentStatus = a.status || a.audit_status || 'NOT_STARTED';
+      const currentStatus = a.audit_status || 'NOT_STARTED';
 
       // Status Filters
       if (filter === 'PENDING' && currentStatus !== 'SCHEDULED' && currentStatus !== 'NOT_STARTED') return false;
@@ -82,7 +80,7 @@ export default function MyAuditsView({ assignments = [], audits = [], templates 
       if (filter === 'SUBMITTED' && currentStatus !== 'SUBMITTED') return false;
       if (filter === 'OVERDUE' && !(a.is_overdue && currentStatus !== 'SUBMITTED')) return false;
 
-      // Priority Filter
+      // Priority FilterA
       const itemPriority = (a.priority || 'MEDIUM').toUpperCase();
       if (priorityFilter !== 'ALL' && itemPriority !== priorityFilter) return false;
 
@@ -203,9 +201,9 @@ export default function MyAuditsView({ assignments = [], audits = [], templates 
       {auditList.length === 0 ? (
         <div className="bg-white p-12 rounded-3xl border border-slate-200/80 text-center space-y-3">
           <ClipboardCheck className="w-10 h-10 text-slate-300 mx-auto" />
-          <div className="text-sm font-bold text-slate-800">No Audits Assigned Yet</div>
+          <div className="text-sm font-bold text-slate-800">No Published Forms Available</div>
           <p className="text-xs text-slate-400 max-w-sm mx-auto">
-            Your Program Admin has not scheduled any inspections against {currentUser?.email} yet.
+            No published forms are available for {currentUser?.email} yet.
           </p>
         </div>
       ) : filtered.length === 0 ? (
@@ -220,14 +218,14 @@ export default function MyAuditsView({ assignments = [], audits = [], templates 
             <table className="w-full min-w-[1150px] border-collapse text-left text-xs">
               <thead className="bg-slate-50">
                 <tr className="border-b border-slate-200 text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                  <th className="px-4 py-3">Audit ID</th><th className="px-4 py-3">Audit name</th><th className="px-4 py-3">Location</th><th className="px-4 py-3">Due date</th><th className="px-4 py-3">Frequency</th><th className="px-4 py-3">Priority</th><th className="px-4 py-3">Status</th><th className="px-4 py-3 text-right">Action</th>
+                  <th className="px-4 py-3">Audit ID</th><th className="px-4 py-3">Form</th><th className="px-4 py-3">Location</th><th className="px-4 py-3">Priority</th><th className="px-4 py-3">Status</th><th className="px-4 py-3 text-right">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
           {paginated.map((assignment) => {
             const template = getTemplate(templates, assignment);
             const auditName = getAuditName(assignment, templates, template);
-            const currentStatus = assignment.status || assignment.audit_status || 'NOT_STARTED';
+            const currentStatus = assignment.audit_status || 'NOT_STARTED';
             const status = STATUS_STYLES[currentStatus] || STATUS_STYLES.NOT_STARTED;
             
             const isSubmitted = currentStatus === 'SUBMITTED';
@@ -242,15 +240,12 @@ export default function MyAuditsView({ assignments = [], audits = [], templates 
                 key={assignment.schedule_id || assignment.audit_id}
                 className={`align-top transition-colors hover:bg-slate-50 ${isOverdue ? 'bg-rose-50/30' : ''}`}
               >
-                <td className="whitespace-nowrap px-4 py-4 font-mono text-[11px] text-slate-600">{assignment.open_audit_id || assignment.audit_id || 'Not started'}</td>
                 <td className="max-w-[240px] px-4 py-4">
                   <div className="truncate font-bold text-slate-900">{auditName}</div>
                   <div className="mt-1 text-[10px] text-slate-500">{(template?.questions_count ?? assignment.questions_count) || 0} questions{Number(template?.estimated_minutes || assignment.estimated_minutes) > 0 ? ` · ~${template?.estimated_minutes || assignment.estimated_minutes} min` : ''}</div>
                   {isSubmitted && assignment.last_submitted_at && <div className="mt-1 text-[10px] font-bold text-emerald-600">Last submitted {formatDate(assignment.last_submitted_at)}{assignment.submission_count > 1 && ` · ${assignment.submission_count} submissions`}</div>}
                 </td>
                 <td className="px-4 py-4 text-slate-700">{assignment.location_id || 'All Locations'}</td>
-                <td className="whitespace-nowrap px-4 py-4 text-slate-600">{formatDate(assignment.due_date)}</td>
-                <td className="px-4 py-4 text-slate-600">{assignment.frequency || 'ONE_TIME'}</td>
                 <td className="px-4 py-4">
                   <span className={`rounded-md px-2 py-1 text-[10px] font-bold uppercase ${assignment.priority === 'CRITICAL' || assignment.priority === 'HIGH' ? 'border border-rose-200 bg-rose-50 text-rose-600' : 'bg-slate-100 text-slate-600'}`}>{assignment.priority || 'MEDIUM'}</span>
                 </td>

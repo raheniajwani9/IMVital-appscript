@@ -112,8 +112,7 @@ export default function UpdateScheduleModal({
       assigned_auditor_email: formData.assigned_auditor_email,
       run_date: formData.start_date,
       due_date: formData.due_date,
-      priority: formData.priority,
-      status: formData.status
+      priority: formData.priority
     };
 
     try {

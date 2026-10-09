@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import AppShell from '../../shared/layout/AppShell';
 import FormsView from './views/FormsView';
-import SchedulesView from './views/SchedulesView';
 import CategoriesView from './views/CategoriesView';
 import UsersView from './views/UsersView';
 import { NAV_CONFIG } from '../../shared/config/navigation';
@@ -26,6 +25,7 @@ const DEFAULT_DATA = {
   sections: [], 
   templates: [],
   schedules: [],
+  formVisibility: [],
   users: [],
   locations: [],
   clusters: []
@@ -49,7 +49,8 @@ export default function AdminWorkspace({ currentUser, onLogout }) {
         { data: audits },
         { data: responses }, 
         { data: actions },
-        { data: locations }
+        { data: locations },
+        { data: formVisibility }
       ] = await Promise.all([
         supabase.from('templates').select('*'),
         supabase.from('sections').select('*'), 
@@ -60,7 +61,8 @@ export default function AdminWorkspace({ currentUser, onLogout }) {
         supabase.from('responses').select('*'), 
         supabase.from('actions').select('*'),
         // FIXED: Removed the .catch() - local data store safely returns data: null if this fails
-        supabase.from('locations').select('*') 
+        supabase.from('locations').select('*'),
+        supabase.from('form_visibility').select('*')
       ]);
 
       setData({
@@ -69,6 +71,7 @@ export default function AdminWorkspace({ currentUser, onLogout }) {
         sections: sections || [], 
         questionBank: questionBank || [],
         schedules: schedules || [],
+        formVisibility: formVisibility || [],
         users: users || [],
         audits: audits || [],
         responses: responses || [], 
@@ -115,16 +118,11 @@ export default function AdminWorkspace({ currentUser, onLogout }) {
           templates={data.templates} 
           sections={data.sections} 
           questions={data.questionBank} 
-          onRefreshData={fetchData} 
-        />
-      )}
-
-      {currentTab === 'Schedules' && (
-        <SchedulesView
           schedules={data.schedules}
-          templates={data.templates}
+          formVisibility={data.formVisibility}
           locations={data.locations}
           users={data.users}
+          currentUser={currentUser}
           onRefreshData={fetchData}
         />
       )}

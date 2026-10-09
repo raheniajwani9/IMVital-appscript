@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import {
   ShieldCheck, ClipboardCheck, AlertTriangle, TrendingUp, MapPin,
   Users, FileText, CalendarClock, Layers,
-  CheckCircle2, HelpCircle, Building2, Flame
+  CheckCircle2, Building2, Flame
 } from 'lucide-react';
 import {
   KpiCard, ChartCard, Donut, VBar, HBar, Empty
@@ -219,14 +219,8 @@ export default function AdminDashboardView({ data = {}, loading, onRefreshData }
         </ChartCard>
       </div>
 
-      {/* Risk + worst PODs */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <ChartCard title="Failures by Risk Category" icon={AlertTriangle}>
-          {a.riskDistribution.length
-            ? <HBar data={a.riskDistribution.slice(0, 10)} dataKey="count" labelKey="risk" color="#f97316" />
-            : <Empty icon={CheckCircle2}>No failures recorded</Empty>}
-        </ChartCard>
-
+      {/* Lowest scoring PODs */}
+      <div className="grid grid-cols-1 gap-4">
         <ChartCard title="Lowest Scoring PODs" icon={MapPin}>
           {a.worstPods.length ? (
             <div className="overflow-x-auto">
@@ -249,72 +243,6 @@ export default function AdminDashboardView({ data = {}, loading, onRefreshData }
           ) : <Empty />}
         </ChartCard>
       </div>
-
-      {/* Top failing questions */}
-      <ChartCard title="Top Failing Questions" icon={HelpCircle}>
-        {a.topFailingQuestions.length ? (
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead><tr className="border-b border-slate-100">
-                <Th>Question</Th><Th>Section</Th><Th>Risk</Th>
-                <Th align="right">Asked</Th><Th align="right">Failed</Th><Th align="right">Fail rate</Th>
-              </tr></thead>
-              <tbody>
-                {a.topFailingQuestions.map((q, i) => (
-                  <tr key={i} className="border-b border-slate-50 hover:bg-slate-50/50">
-                    <td className="py-2.5 pr-3 font-semibold text-slate-700 max-w-[320px] truncate">
-                      {q.critical && <span className="mr-1.5 text-[9px] font-black text-rose-500">CRIT</span>}
-                      {q.question}
-                    </td>
-                    <td className="py-2.5 pr-3 text-slate-500 truncate max-w-[140px]">{q.section}</td>
-                    <td className="py-2.5 pr-3 text-slate-500">{q.risk}</td>
-                    <td className="py-2.5 pr-3 text-right font-bold text-slate-600">{q.asked}</td>
-                    <td className="py-2.5 pr-3 text-right font-bold text-rose-600">{q.failed}</td>
-                    <td className={`py-2.5 text-right font-black ${q.failRate >= 50 ? 'text-rose-600' : 'text-amber-600'}`}>
-                      {q.failRate}%
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : <Empty icon={CheckCircle2}>No question-level failures</Empty>}
-      </ChartCard>
-
-      {/* Auditor leaderboard */}
-      <ChartCard title="Auditor Performance" icon={Users}>
-        {a.byAuditor.length ? (
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead><tr className="border-b border-slate-100">
-                <Th>Auditor</Th><Th>Cluster</Th>
-                <Th align="right">Submitted</Th><Th align="right">Avg score</Th>
-                <Th align="right">Critical</Th><Th align="right">Turnaround</Th><Th align="right">Pending</Th>
-              </tr></thead>
-              <tbody>
-                {a.byAuditor.map((u) => (
-                  <tr key={u.email} className="border-b border-slate-50 hover:bg-slate-50/50">
-                    <td className="py-2.5 pr-3">
-                      <div className="font-semibold text-slate-700">{u.name}</div>
-                      <div className="text-[10px] text-slate-400">{u.email}</div>
-                    </td>
-                    <td className="py-2.5 pr-3 text-slate-500">{u.cluster}</td>
-                    <td className="py-2.5 pr-3 text-right font-bold text-slate-600">{u.auditCount}</td>
-                    <td className={`py-2.5 pr-3 text-right font-black ${u.auditCount ? scoreClass(u.avgScore) : 'text-slate-300'}`}>
-                      {u.auditCount ? `${u.avgScore}%` : '—'}
-                    </td>
-                    <td className="py-2.5 pr-3 text-right font-bold text-rose-600">{u.critical || '—'}</td>
-                    <td className="py-2.5 pr-3 text-right text-slate-500 font-semibold">
-                      {u.avgTurnaroundHrs ? `${u.avgTurnaroundHrs} h` : '—'}
-                    </td>
-                    <td className="py-2.5 text-right font-bold text-amber-600">{u.pending || '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : <Empty />}
-      </ChartCard>
 
       {/* Coverage gaps + critical failures */}
       <div className="grid grid-cols-1 gap-4">

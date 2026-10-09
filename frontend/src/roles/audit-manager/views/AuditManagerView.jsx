@@ -252,6 +252,60 @@ export default function AuditManagerView({ currentUser }) {
       }
     }
 
+    if (selectedAudit.schedule_id) {
+      const { data: previousAssignment, error: assignmentReadError } = await supabase
+        .from('schedules')
+        .select('*')
+        .eq('schedule_id', selectedAudit.schedule_id)
+        .maybeSingle();
+      if (assignmentReadError) {
+        setSaving(false);
+        setMessage(`Review saved, but the next run could not be prepared: ${assignmentReadError.message}`);
+        return;
+      }
+
+      if (previousAssignment) {
+        const { data: laterRuns, error: laterRunError } = await supabase
+          .from('schedules')
+          .select('schedule_id')
+          .eq('template_id', previousAssignment.template_id)
+          .ilike('assigned_auditor_email', previousAssignment.assigned_auditor_email)
+          .eq('location_id', previousAssignment.location_id)
+          .gt('created_at', previousAssignment.created_at || '1970-01-01T00:00:00Z')
+          .limit(1);
+        if (laterRunError) {
+          setSaving(false);
+          setMessage(`Review saved, but the next run could not be checked: ${laterRunError.message}`);
+          return;
+        }
+
+        if (!laterRuns?.length) {
+          const createdAt = new Date().toISOString();
+          const { error: nextRunError } = await supabase
+            .from('schedules')
+            .insert({
+              schedule_id: `PUB-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+              template_id: previousAssignment.template_id,
+              location_id: previousAssignment.location_id,
+              frequency: previousAssignment.frequency || 'ONE_TIME',
+              run_date: createdAt.slice(0, 10),
+              due_date: null,
+              assigned_auditor: previousAssignment.assigned_auditor,
+              assigned_auditor_email: previousAssignment.assigned_auditor_email,
+              priority: previousAssignment.priority || 'MEDIUM',
+              city: previousAssignment.city || '',
+              created_at: createdAt
+            });
+          if (nextRunError) {
+            setSaving(false);
+            setMessage(`Review saved, but the next form run could not be created: ${nextRunError.message}`);
+            return;
+          }
+        }
+
+      }
+    }
+
     const updatedAudit = {
       ...selectedAudit,
       review_status: reviewStatus
