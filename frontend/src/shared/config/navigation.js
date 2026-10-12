@@ -1,14 +1,4 @@
-import {
-  LayoutGrid,
-  Calendar,
-  Users as UsersIcon,
-  Tag,
-  ClipboardCheck,
-  History,
-  BarChart3,
-  CheckCircle2,
-  Clock3,
-} from 'lucide-react';
+import { LayoutGrid, Calendar, Users as UsersIcon, Tag, ClipboardCheck, History, BarChart3, CheckCircle2, Clock3, Repeat, MapPin, RotateCcw } from 'lucide-react';
 
 export const NAV_CONFIG = {
   ADMIN: {
@@ -40,9 +30,23 @@ export const NAV_CONFIG = {
         title: 'MY WORKSPACE',
         items: [
           { key: 'Dashboard', name: 'Dashboard', icon: BarChart3 },
-          { key: 'MyAudits', name: 'My Audits', icon: ClipboardCheck, countKey: 'pending' },
+          {
+            key: 'MyAudits', name: 'My Audits', icon: ClipboardCheck, countKey: 'pending',
+            children: [
+              { key: 'MyAuditsRecurring', name: 'Recurring', icon: Repeat, category: 'RECURRING' },
+              { key: 'MyAuditsScheduled', name: 'Scheduled', icon: Calendar, category: 'SCHEDULED' },
+              { key: 'MyAuditsReAudits', name: 'Re-audits', icon: RotateCcw, category: 'RE_AUDITS' }
+            ]
+          },
           { key: 'Calendar', name: 'Calendar', icon: Calendar },
-          { key: 'History', name: 'Submitted', icon: History, countKey: 'submitted' }
+          {
+            key: 'History', name: 'Submitted', icon: History, countKey: 'submitted',
+            children: [
+              { key: 'HistoryRecurring', name: 'Recurring', icon: Repeat, category: 'RECURRING' },
+              { key: 'HistoryScheduled', name: 'Scheduled', icon: Calendar, category: 'SCHEDULED' },
+              { key: 'HistoryReAudits', name: 'Re-audits', icon: RotateCcw, category: 'RE_AUDITS' }
+            ]
+          }
         ]
       }
     ]
