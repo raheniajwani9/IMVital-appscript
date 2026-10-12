@@ -5,11 +5,11 @@ import {
   ShieldCheck, AlertTriangle
 } from 'lucide-react';
 import { supabase } from '../../../shared/lib/supabaseClient'; // 1. Import your local data store client
+import { limitSectionWeight, remainingSectionWeight } from '../utils/sectionWeight';
 
 const RESPONSE_TYPES = [
   { value: 'YES_NO', label: 'Yes / No' }, 
   { value: 'PASS_FAIL', label: 'Pass / Fail' },
-  { value: 'PHOTO', label: 'Photo Evidence' },
   { value: 'COMPLETE_NOT_COMPLETE', label: 'Complete / Not Complete' },
   { value: 'RATING', label: 'Rating (1-5)' }
 ];
@@ -159,13 +159,21 @@ export default function UpdateFormModal({ form, currentUser, onClose, onUpdated 
     setStep(totalSections + 1);
   };
 
-  const removeSection = (sIdx) => setFormData((prev) => {
-    const newSections = prev.sections.filter((_, i) => i !== sIdx);
-    if (step > newSections.length) setStep(newSections.length);
-    return { ...prev, sections: newSections };
-  });
+  const removeSection = (sectionIndex) => {
+    if (totalSections <= 1) return;
 
-  const updateSectionField = (sIdx, field, value) => setFormData((prev) => ({ ...prev, sections: prev.sections.map((sec, i) => (i === sIdx ? { ...sec, [field]: value } : sec)) }));
+    setFormData((previous) => ({
+      ...previous,
+      sections: previous.sections
+        .filter((_, index) => index !== sectionIndex)
+        .map((section, index) => ({ ...section, section_order: index + 1 }))
+    }));
+    setStep((currentStep) => currentStep > sectionIndex + 1
+      ? currentStep - 1
+      : Math.min(currentStep, totalSections - 1));
+  };
+
+  const updateSectionField = (sIdx, field, value) => setFormData((prev) => ({ ...prev, sections: prev.sections.map((sec, i) => (i === sIdx ? { ...sec, [field]: field === 'section_weight' ? limitSectionWeight(value, prev.sections, sIdx) : value } : sec)) }));
   const addQuestion = (sIdx) => setFormData((prev) => ({ ...prev, sections: prev.sections.map((sec, i) => (i === sIdx ? { ...sec, questions: [...sec.questions, blankQ()] } : sec)) }));
 
   const updateQuestion = (sIdx, qIdx, field, value) =>
@@ -204,6 +212,9 @@ export default function UpdateFormModal({ form, currentUser, onClose, onUpdated 
     const templateId = formData.template_id;
 
     try {
+      const actorId = currentUser?.user_id || currentUser?.auth_user_id || currentUser?.id;
+      if (!actorId) throw new Error('Sign in again before saving this form.');
+
       const { data: publishedVersion, error: publishError } =
       await supabase.rpc('publish_template_version', {
         p_template_id: templateId,
@@ -211,10 +222,11 @@ export default function UpdateFormModal({ form, currentUser, onClose, onUpdated 
           template_name: formData.template_name,
           template_category: formData.template_category,
           template_description: formData.template_description,
+          audit_type: formData.audit_type,
           estimated_minutes: Number(formData.estimated_minutes) || 15
         },
         p_sections: formData.sections,
-        p_actor: currentUser?.user_id || currentUser?.name || 'System Admin',
+        p_actor: actorId,
         p_change_summary: 'Published from form editor'
       });
 
@@ -350,7 +362,14 @@ export default function UpdateFormModal({ form, currentUser, onClose, onUpdated 
               </div>
 
               <div className="rounded-2xl border border-indigo-100 bg-indigo-50/40 p-4">
-                <h4 className="mb-3 text-sm font-bold text-slate-800">Section {currentSectionIdx + 1} details</h4>
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <h4 className="text-sm font-bold text-slate-800">Section {currentSectionIdx + 1} details</h4>
+                  {totalSections > 1 && (
+                    <button type="button" onClick={() => removeSection(currentSectionIdx)} className="shrink-0 rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-500" aria-label="Remove section" title="Remove section">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
                 <div className="grid gap-3 sm:grid-cols-3">
                   <div>
                     <label className={labelCls}>Section name</label>
@@ -373,9 +392,10 @@ export default function UpdateFormModal({ form, currentUser, onClose, onUpdated 
                   </div>
                   <div>
                     <label className={labelCls}>Section weight (%)</label>
-                    <input className={sectionCls} type="number" min="0.01" max="100" step="0.01"
+                    <input className={sectionCls} type="number" min="0" max={remainingSectionWeight(formData.sections, currentSectionIdx)} step="0.01"
                       value={currentSection.section_weight}
                       onChange={(event) => updateSectionField(currentSectionIdx, 'section_weight', event.target.value)} required />
+                    <p className="mt-1 text-xs text-slate-500">Maximum available: {remainingSectionWeight(formData.sections, currentSectionIdx)}%</p>
                   </div>
                 </div>
                 <p className={`mt-3 text-xs font-semibold ${sectionDetailsValid ? 'text-emerald-700' : 'text-amber-700'}`}>
@@ -384,14 +404,6 @@ export default function UpdateFormModal({ form, currentUser, onClose, onUpdated 
               </div>
 
               <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
-                <div className="flex items-center gap-3 px-4 py-3 bg-slate-50 border-b border-slate-200">
-                  {totalSections > 1 && (
-                    <button type="button" onClick={() => removeSection(currentSectionIdx)} className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors shrink-0">
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  )}
-                </div>
-
                 <div className="p-4 space-y-3">
                   {formData.sections[currentSectionIdx].questions.map((q, qIdx) => (
                     <div key={qIdx} className="bg-slate-50/50 border border-slate-200 rounded-xl p-4 space-y-3">

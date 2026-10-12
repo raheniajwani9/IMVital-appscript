@@ -19,6 +19,7 @@ import { createLegacyTemplate, isMissingTemplateFunction, saveCurrentSectionDeta
 import { publishAssignments } from '../api/publishAssignments';
 import PodScopePicker from '../../../shared/components/PodScopePicker';
 import { userClusters, podsForScope, podKey } from '../../../shared/config/clusters';
+import { limitSectionWeight, remainingSectionWeight } from '../utils/sectionWeight';
 
 const RESPONSE_TYPES = [
   { value: 'YES_NO', label: 'Yes / No' },
@@ -259,13 +260,17 @@ export default function CreateFormModal({
   };
 
   const removeSection = (sectionIndex) => {
-    setFormData((previous) => {
-      const sections = previous.sections.filter(
-        (_, index) => index !== sectionIndex
-      );
-      if (step > sections.length) setStep(sections.length);
-      return { ...previous, sections };
-    });
+    if (totalSections <= 1) return;
+
+    setFormData((previous) => ({
+      ...previous,
+      sections: previous.sections
+        .filter((_, index) => index !== sectionIndex)
+        .map((section, index) => ({ ...section, section_order: index + 1 }))
+    }));
+    setStep((currentStep) => currentStep > sectionIndex + 1
+      ? currentStep - 1
+      : Math.min(currentStep, totalSections - 1));
   };
 
   const updateSectionField = (sectionIndex, field, value) => {
@@ -273,7 +278,7 @@ export default function CreateFormModal({
       ...previous,
       sections: previous.sections.map((section, index) =>
         index === sectionIndex
-          ? { ...section, [field]: value }
+          ? { ...section, [field]: field === 'section_weight' ? limitSectionWeight(value, previous.sections, sectionIndex) : value }
           : section
       )
     }));
@@ -412,17 +417,8 @@ export default function CreateFormModal({
     let templateSaved = Boolean(savedTemplateId);
 
     try {
-      const storedUserString = localStorage.getItem('imvitals_user');
-      let creatorName = 'System Admin';
-
-      if (storedUserString) {
-        try {
-          const storedUser = JSON.parse(storedUserString);
-          if (storedUser?.name) creatorName = storedUser.name;
-        } catch (parseError) {
-          console.error('Error parsing user data from local storage', parseError);
-        }
-      }
+      const actorId = currentUser?.user_id || currentUser?.auth_user_id || currentUser?.id;
+      if (!actorId) throw new Error('Sign in again before publishing this form.');
 
       if (!templateSaved) {
         const { data: createdVersion, error: createError } = await supabase.rpc(
@@ -433,10 +429,11 @@ export default function CreateFormModal({
               template_name: formData.template_name,
               template_category: formData.template_category,
               template_description: formData.template_description,
+              audit_type: formData.audit_type,
               estimated_minutes: Number(formData.estimated_minutes) || 15
             },
             p_sections: formData.sections,
-            p_actor: creatorName
+            p_actor: actorId
           }
         );
 
@@ -444,7 +441,7 @@ export default function CreateFormModal({
           if (!isMissingTemplateFunction(createError, 'create_template_with_initial_version')) {
             throw createError;
           }
-          await createLegacyTemplate(supabase, templateId, formData, creatorName);
+          await createLegacyTemplate(supabase, templateId, formData, actorId);
         } else {
           console.info('Created template version:', createdVersion?.template_version);
         }
@@ -722,7 +719,20 @@ export default function CreateFormModal({
               </div>
 
               <div className="rounded-2xl border border-indigo-100 bg-indigo-50/40 p-4">
-                <h4 className="mb-3 text-sm font-bold text-slate-800">Section {currentSectionIdx + 1} details</h4>
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <h4 className="text-sm font-bold text-slate-800">Section {currentSectionIdx + 1} details</h4>
+                  {totalSections > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => removeSection(currentSectionIdx)}
+                      className="shrink-0 rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-500"
+                      aria-label="Remove section"
+                      title="Remove section"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
                 <div className="grid gap-3 sm:grid-cols-3">
                   <div>
                     <label className={labelCls}>Section name</label>
@@ -746,9 +756,10 @@ export default function CreateFormModal({
                   </div>
                   <div>
                     <label className={labelCls}>Section weight (%)</label>
-                    <input className={sectionCls} type="number" min="0.01" max="100" step="0.01"
+                    <input className={sectionCls} type="number" min="0" max={remainingSectionWeight(formData.sections, currentSectionIdx)} step="0.01"
                       value={currentSection.section_weight}
                       onChange={(event) => updateSectionField(currentSectionIdx, 'section_weight', event.target.value)} required />
+                    <p className="mt-1 text-xs text-slate-500">Maximum available: {remainingSectionWeight(formData.sections, currentSectionIdx)}%</p>
                   </div>
                 </div>
                 <p className={`mt-3 text-xs font-semibold ${sectionDetailsValid ? 'text-emerald-700' : 'text-amber-700'}`}>
@@ -757,19 +768,6 @@ export default function CreateFormModal({
               </div>
 
               <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-                <div className="flex items-center gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3">
-                  {totalSections > 1 && (
-                    <button
-                      type="button"
-                      onClick={() => removeSection(currentSectionIdx)}
-                      className="shrink-0 rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-500"
-                      aria-label="Remove section"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  )}
-                </div>
-
                 <div className="space-y-3 p-4">
                   {currentSection.questions.map((question, questionIndex) => {
                     const responseOptions = getResponseOptions(question.response_type);

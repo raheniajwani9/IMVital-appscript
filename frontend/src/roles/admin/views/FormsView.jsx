@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
-  Plus, MoreHorizontal, FileText, Pencil, Trash2, ChevronLeft, ChevronRight, 
-  Info, MapPin, User, Calendar, ShieldCheck, Camera, FileSignature, QrCode, 
-  LayoutGrid, Clock, Layers, ListChecks, X, ChevronRight as ChevronRightIcon,
-  Search, ChevronDown, ArrowDownAZ, ArrowUpAZ, Clock as ClockIcon, Check, AlertTriangle 
+  Plus, MoreHorizontal, FileText, Pencil, Trash2, ChevronLeft, ChevronRight,
+  User, Clock, X, Search, ChevronDown, ArrowDownAZ, ArrowUpAZ,
+  Check, AlertTriangle
 } from 'lucide-react';
 import CreateFormModal from '../../../features/forms/components/CreateFormModal';
 import FormVisibilityModal from '../../../features/forms/components/FormVisibilityModal';
@@ -13,18 +12,33 @@ import DeleteFormModal from '../../../features/forms/components/DeleteFormModal'
 import AssignFormAuditorsModal from '../../../features/forms/components/AssignFormAuditorsModal';
 
 // UPDATED: Now accepts templates, sections, and questions as separate arrays
-export default function FormsView({ templates = [], sections = [], questions = [], schedules = [], formVisibility = [], locations = [], users = [], data = [], currentUser, onRefreshData }) {
+export default function FormsView({ templates = [], sections = [], questions = [], formVisibility = [], locations = [], users = [], data = [], currentUser, onRefreshData }) {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState('latest');
   const [isSortMenuOpen, setIsSortMenuOpen] = useState(false);
 
   const SORT_OPTIONS = [
-    { value: 'latest', label: 'Latest First', icon: ClockIcon },
-    { value: 'oldest', label: 'Oldest First', icon: ClockIcon },
+    { value: 'latest', label: 'Latest First', icon: Clock },
+    { value: 'oldest', label: 'Oldest First', icon: Clock },
     { value: 'az', label: 'A → Z', icon: ArrowDownAZ },
     { value: 'za', label: 'Z → A', icon: ArrowUpAZ },
   ];
+
+  const userName = (actor) => {
+    const value = String(actor || '').trim();
+    if (!value) return 'Unknown user';
+
+    const user = users.find((u) =>
+      [u.user_id, u.auth_user_id, u.id, u.email]
+        .some((key) => String(key || '').toLowerCase() === value.toLowerCase())
+    );
+
+    if (user) return user.full_name || user.name || user.email || 'Unknown user';
+
+    const looksLikeId = /^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(value) || /^USR-[a-z0-9-]+$/i.test(value);
+    return looksLikeId ? 'Unknown user' : value;
+  };
 
   // 1. RELATIONAL DATA MAPPING (Stitching local data store tables together)
   const groupedForms = useMemo(() => {
@@ -171,8 +185,12 @@ export default function FormsView({ templates = [], sections = [], questions = [
   useEffect(() => { setFormCardPage(1); }, [searchQuery, sortBy]);
 
   const [previewForm, setPreviewForm] = useState(null);
-  const [currentQuestionPage, setCurrentQuestionPage] = useState(1);
-  const QUESTIONS_PER_PAGE = 1;
+
+  useEffect(() => {
+    setPreviewForm((current) => current
+      ? groupedForms.find((form) => form.template_id === current.template_id) || null
+      : null);
+  }, [groupedForms]);
 
   const [activeMenuId, setActiveMenuId] = useState(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -180,8 +198,6 @@ export default function FormsView({ templates = [], sections = [], questions = [
   const [deletingForm, setDeletingForm] = useState(null);
   const [assigningForm, setAssigningForm] = useState(null);
   const [visibilityForm, setVisibilityForm] = useState(null);
-
-  useEffect(() => { setCurrentQuestionPage(1); }, [previewForm]);
 
   const toggleMenu = (e, id) => { e.stopPropagation(); setActiveMenuId(activeMenuId === id ? null : id); };
   const handleEdit = (e, form) => { e.stopPropagation(); setActiveMenuId(null); setEditingForm(form); };
@@ -192,20 +208,7 @@ export default function FormsView({ templates = [], sections = [], questions = [
   const openPreview = (form) => { setPreviewForm(form); setActiveMenuId(null); };
   const closePreview = () => { setPreviewForm(null); };
 
-  const allFormQuestions = useMemo(() => {
-    if (!previewForm?.sections) return [];
-    const list = [];
-    previewForm.sections.forEach((sec, sIdx) => {
-      (sec.questions || []).forEach((q) => {
-        list.push({ ...q, section_name: sec.section_name, section_instructions: sec.section_instructions, section_order: sec.section_order || sIdx + 1, display_order: list.length + 1 });
-      });
-    });
-    return list;
-  }, [previewForm]);
-
-  const totalQuestionPages = Math.ceil(allFormQuestions.length / QUESTIONS_PER_PAGE) || 1;
-  const qStartIndex = (currentQuestionPage - 1) * QUESTIONS_PER_PAGE;
-  const paginatedQuestions = allFormQuestions.slice(qStartIndex, qStartIndex + QUESTIONS_PER_PAGE);
+  const previewQuestionCount = previewForm?.sections?.reduce((count, section) => count + (section.questions?.length || 0), 0) || 0;
 
   const currentSortLabel = SORT_OPTIONS.find((opt) => opt.value === sortBy)?.label || 'Latest First';
 
@@ -307,14 +310,14 @@ export default function FormsView({ templates = [], sections = [], questions = [
             {/* ═══ LEFT: Cards list ═══ */}
             <div
               className={`flex-col ${
-                previewForm ? 'hidden lg:flex lg:w-[60%]' : 'flex w-full'
+                previewForm ? 'hidden lg:flex lg:w-[52%]' : 'flex w-full'
               } transition-all duration-300`}
             >
               <div className="flex items-center justify-between mb-3 shrink-0">
                 <span className="text-sm font-semibold text-slate-700">
                   All Forms <span className="text-slate-400 font-normal">({filteredAndSortedForms.length})</span>
                 </span>
-                <span className="text-xs text-slate-400">{currentSortLabel}</span>
+                <span className="text-xs text-slate-400">Select a form to view its questions</span>
               </div>
 
               {/* Cards scroll area */}
@@ -325,64 +328,51 @@ export default function FormsView({ templates = [], sections = [], questions = [
                   const sectionsCount = form.sections?.length || 0;
                   const totalQuestions = form.sections?.reduce((a, s) => a + (s.questions?.length || 0), 0) || 0;
                   const isMenuOpen = activeMenuId === itemId;
-                  const isPublished = form.template_status === 'Published';
-                  const hasAssignments = schedules.some((schedule) => String(schedule.template_id) === String(itemId));
                   const visibility = visibilityFor(formVisibility, itemId);
 
                   return (
                     <div
                       key={itemId}
                       onClick={() => openPreview(form)}
-                      className={`group relative cursor-pointer p-3.5 rounded-xl border transition-all flex items-center gap-3 ${
+                      className={`group relative cursor-pointer p-4 rounded-xl border transition-all flex items-start gap-3 ${
                         isActive ? 'bg-white border-indigo-500 ring-1 ring-indigo-500/20 shadow-sm' : 'bg-white border-slate-200 hover:border-slate-300 hover:shadow-sm'
                       }`}
                     >
-                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 transition-colors ${isActive ? 'bg-indigo-50' : 'bg-slate-50 group-hover:bg-indigo-50'}`}>
-                        <FileText className={`w-5 h-5 ${isActive ? 'text-indigo-600' : 'text-slate-400 group-hover:text-indigo-500'}`} />
-                      </div>
-
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-0.5">
-                          <h3 className="font-semibold text-sm text-slate-900 truncate">{form.template_name}</h3>
-                          <span className={`shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-semibold uppercase ${isPublished ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
-                            <span className={`w-1.5 h-1.5 rounded-full ${isPublished ? 'bg-emerald-500' : 'bg-amber-500'}`} />{isPublished ? 'Published' : 'Draft'}
-                          </span>
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-1">
+                          <h3 className="font-semibold text-base text-slate-900 break-words">{form.template_name}</h3>
+                          <span className="text-xs font-medium text-slate-400">{form.template_version || 'v1.0'}</span>
                         </div>
-                        <p className="text-xs text-slate-500 line-clamp-1 leading-relaxed">{form.template_description || 'Standard operational procedure checklist.'}</p>
-                        <p className={`mt-1 text-[11px] font-semibold ${visibility?.mode === 'HIDDEN_ALL' ? 'text-rose-600' : visibility?.mode === 'HIDDEN_SELECTED' ? 'text-amber-600' : 'text-emerald-600'}`}>{visibilityLabel(visibility)}</p>
+                        {form.template_description && <p className="text-sm text-slate-500 line-clamp-2 leading-relaxed">{form.template_description}</p>}
+                        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+                          <span>{sectionsCount} {sectionsCount === 1 ? 'section' : 'sections'}</span>
+                          <span>{totalQuestions} {totalQuestions === 1 ? 'question' : 'questions'}</span>
+                          <span className={visibility?.mode === 'HIDDEN_ALL' ? 'text-rose-600' : visibility?.mode === 'HIDDEN_SELECTED' ? 'text-amber-600' : 'text-emerald-700'}>{visibilityLabel(visibility)}</span>
+                        </div>
                       </div>
 
-                      <div className="hidden lg:flex items-center gap-3 text-[11px] text-slate-400 shrink-0">
-                        <span className="flex items-center gap-1"><Layers className="w-3.5 h-3.5" />{sectionsCount}</span>
-                        <span className="flex items-center gap-1"><ListChecks className="w-3.5 h-3.5" />{totalQuestions}</span>
-                        <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5" />{form.template_version || 'v1.0'}</span>
-                      </div>
-
-                      <div className="flex items-center gap-0.5 shrink-0">
+                      <div className="flex items-center gap-1 shrink-0">
                         <button
                           type="button"
                           onClick={(event) => handleVisibility(event, form)}
                           title={`Manage visibility for ${form.template_name}`}
                           aria-label={`Manage visibility for ${form.template_name}`}
-                          className="mr-1 flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100"
+                          className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
                         >
-                          <ShieldCheck className="h-3.5 w-3.5" />
-                          <span className="hidden sm:inline">Visibility</span>
+                          Visibility
                         </button>
                         <div className="relative">
-                          <button onClick={(e) => toggleMenu(e, itemId)} className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition-colors">
+                          <button onClick={(e) => toggleMenu(e, itemId)} aria-label={`More actions for ${form.template_name}`} className="text-slate-500 hover:text-slate-700 p-1.5 rounded-lg hover:bg-slate-100 transition-colors">
                             <MoreHorizontal className="w-4 h-4" />
                           </button>
                           {isMenuOpen && (
                             <div className="absolute right-0 top-8 w-48 bg-white rounded-xl border border-slate-200 shadow-lg py-1 z-20" onClick={(e) => e.stopPropagation()}>
                               <button onClick={(e) => handleEdit(e, form)} className="w-full flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors"><Pencil className="w-3.5 h-3.5 text-indigo-500" /> Edit</button>
                               <button onClick={(e) => handleAssign(e, form)} className="w-full flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-indigo-600 hover:bg-indigo-50 transition-colors"><User className="w-3.5 h-3.5" /> Assign auditors</button>
-                              <button onClick={(e) => handleVisibility(e, form)} className="w-full flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors"><ShieldCheck className="w-3.5 h-3.5 text-indigo-500" /> Manage visibility</button>
                               <button onClick={(e) => handleDelete(e, form)} className="w-full flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50 transition-colors"><Trash2 className="w-3.5 h-3.5 text-rose-500" /> Delete current version</button>
                             </div>
                           )}
                         </div>
-                        <ChevronRightIcon className={`w-4 h-4 transition-colors ${isActive ? 'text-indigo-500' : 'text-slate-300'}`} />
                       </div>
                     </div>
                   );
@@ -421,130 +411,64 @@ export default function FormsView({ templates = [], sections = [], questions = [
 
             {/* ═══ RIGHT: Preview panel ═══ */}
             {previewForm && (
-              <div className="w-full lg:w-[40%] lg:min-w-[340px] shrink-0 flex flex-col">
+              <div className="w-full lg:w-[48%] lg:min-w-[380px] shrink-0 flex flex-col">
                 <div className="bg-white rounded-2xl border border-slate-200 shadow-sm flex flex-col flex-1 overflow-hidden">
-                  <div className="flex items-start justify-between p-4 border-b border-slate-100 shrink-0">
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <div className="w-9 h-9 rounded-lg bg-indigo-50 flex items-center justify-center shrink-0"><FileText className="w-5 h-5 text-indigo-600" /></div>
-                      <div className="min-w-0">
-                        <span className="text-[10px] font-semibold text-indigo-600 tracking-wider uppercase block">Form Preview</span>
-                        <h2 className="text-sm font-bold text-slate-900 truncate">{previewForm.template_name}</h2>
-                      </div>
+                  <div className="flex items-start justify-between gap-3 p-5 border-b border-slate-100 shrink-0">
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-indigo-600">Form details</p>
+                      <h2 className="mt-1 text-xl font-bold text-slate-900 break-words">{previewForm.template_name}</h2>
+                      <p className="mt-1 text-sm text-slate-500">{previewForm.template_status} · {previewForm.audit_type || 'Internal Audit'} · {previewForm.template_version || 'v1.0'} · {previewForm.estimated_minutes || 15} min</p>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-[10px] font-semibold uppercase ${previewForm.template_status === 'Published' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${previewForm.template_status === 'Published' ? 'bg-emerald-500' : 'bg-amber-500'}`} />{previewForm.template_status === 'Published' ? 'Published' : 'Draft'}
-                      </span>
-                      <button onClick={closePreview} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
-                        <X className="w-4 h-4" />
-                      </button>
-                    </div>
+                    <button onClick={closePreview} aria-label="Close form details" className="p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"><X className="w-5 h-5" /></button>
                   </div>
 
-                  <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                    <div>
-                      <div className="text-[10px] text-slate-400 uppercase font-semibold mb-2.5 tracking-wide">Details</div>
-                      <div className="grid grid-cols-2 gap-2.5">
-                        <div className="flex items-center gap-2 bg-slate-50 rounded-lg px-2.5 py-2">
-                          <ShieldCheck className="w-4 h-4 text-slate-400 shrink-0" />
-                          <div className="min-w-0">
-                            <div className="text-[9px] text-slate-400 uppercase font-semibold">Audit Type</div>
-                            <div className="text-xs font-semibold text-slate-700 truncate">{previewForm.audit_type || 'Internal Audit'}</div>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2 bg-slate-50 rounded-lg px-2.5 py-2">
-                          <User className="w-4 h-4 text-slate-400 shrink-0" />
-                          <div className="min-w-0">
-                            <div className="text-[9px] text-slate-400 uppercase font-semibold">Created By</div>
-                            <div className="text-xs font-semibold text-slate-700 truncate">{previewForm.created_by}</div>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2 bg-slate-50 rounded-lg px-2.5 py-2">
-                          <FileSignature className="w-4 h-4 text-slate-400 shrink-0" />
-                          <div className="min-w-0">
-                            <div className="text-[9px] text-slate-400 uppercase font-semibold">Last Edited By</div>
-                            <div className="text-xs font-semibold text-slate-700 truncate">{previewForm.last_edited_by}</div>
-                          </div>
-                        </div>
+                  <div className="flex-1 overflow-y-auto p-5 space-y-6">
+                    {previewForm.template_description && <p className="text-sm leading-relaxed text-slate-600">{previewForm.template_description}</p>}
 
-                        <div className="flex items-center gap-2 bg-slate-50 rounded-lg px-2.5 py-2">
-                          <Clock className="w-4 h-4 text-slate-400 shrink-0" />
-                          <div className="min-w-0">
-                            <div className="text-[9px] text-slate-400 uppercase font-semibold">Estimated Duration</div>
-                            <div className="text-xs font-semibold text-slate-700">{previewForm.estimated_minutes ? `${previewForm.estimated_minutes} min` : 'Unspecified'}</div>
-                          </div>
-                        </div>
-                      </div>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-xl bg-slate-50 p-4 text-sm">
+                      <div><span className="block text-xs text-slate-500">Created by</span><span className="font-medium text-slate-800 break-words">{userName(previewForm.created_by)}</span></div>
+                      <div><span className="block text-xs text-slate-500">Last edited by</span><span className="font-medium text-slate-800 break-words">{userName(previewForm.last_edited_by)}</span></div>
                     </div>
 
-                    {previewForm.template_description && (
-                      <div>
-                        <div className="text-[10px] text-slate-400 uppercase font-semibold mb-1.5 tracking-wide">Description</div>
-                        <p className="text-xs text-slate-600 leading-relaxed bg-slate-50 rounded-lg px-3 py-2.5">{previewForm.template_description}</p>
-                      </div>
-                    )}
-
                     <div>
-                      <div className="text-[10px] text-slate-400 uppercase font-semibold mb-2.5 tracking-wide">Questions ({allFormQuestions.length})</div>
-                      <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-3 space-y-3">
-                        <div className="flex items-center justify-between text-xs pb-2 border-b border-slate-200/60">
-                          <span className="font-semibold text-slate-700 truncate pr-2">{paginatedQuestions[0]?.section_name || previewForm.sections?.[0]?.section_name || 'General Inspection'}</span>
-                          <span className="text-[10px] text-slate-400 shrink-0">{allFormQuestions.length} {allFormQuestions.length === 1 ? 'question' : 'questions'}</span>
-                        </div>
-                        <div className="space-y-2.5">
-                          {paginatedQuestions.length > 0 ? (
-                            paginatedQuestions.map((q) => {
-                              const instructions = q.section_instructions || previewForm.template_instructions;
-                              return (
-                                <div key={q.question_id || q.display_order} className="bg-white p-3 rounded-lg border border-slate-200/60 text-xs space-y-1.5">
-                                  <div className="flex items-center justify-between gap-2">
-                                    <span className="text-slate-700 font-semibold flex items-center gap-2 min-w-0">
-                                      <span className="w-5 h-5 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center text-[10px] font-bold shrink-0">{q.display_order}</span>
-                                      <span className="truncate" title={q.question_text}>{q.question_text}</span>
-                                    </span>
-                                    <div className="flex items-center gap-1 shrink-0 ml-1">
-                                      {q.critical_question && (
-                                        <span className="text-[9px] font-semibold px-1.5 py-0.5 bg-rose-50 text-rose-700 rounded uppercase flex items-center gap-0.5">
-                                          <AlertTriangle className="w-3 h-3" /> Critical
-                                        </span>
-                                      )}
-                                      
-                                      {q.evidence_policy && q.evidence_policy !== 'NONE' && (
-                                        <span className="text-[9px] font-semibold px-1.5 py-0.5 bg-amber-50 text-amber-700 rounded uppercase flex items-center gap-0.5">
-                                          {q.evidence_policy === 'PHOTO' && <Camera className="w-3 h-3" />}
-                                          {q.evidence_policy === 'SIGNATURE' && <FileSignature className="w-3 h-3" />}
-                                          {(q.evidence_policy === 'BARCODE' || q.evidence_policy === 'QR_CODE') && <QrCode className="w-3 h-3" />}
-                                          {q.evidence_policy}
-                                        </span>
-                                      )}
-                                      <span className="text-[9px] font-semibold px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded uppercase">{q.response_type || 'YES_NO'}</span>
+                      <div className="mb-3 flex items-center justify-between gap-2">
+                        <h3 className="text-base font-semibold text-slate-900">Sections and questions</h3>
+                        <span className="text-xs text-slate-500">{previewForm.sections?.length || 0} sections · {previewQuestionCount} questions</span>
+                      </div>
+                      {previewForm.sections?.length ? (
+                        <div className="space-y-3">
+                          {previewForm.sections.map((section, sectionIndex) => (
+                            <details key={section.section_id || sectionIndex} open={sectionIndex === 0} className="group rounded-xl border border-slate-200 bg-white">
+                              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-4 [&::-webkit-details-marker]:hidden">
+                                <div className="min-w-0">
+                                  <h4 className="font-semibold text-slate-900 break-words">{sectionIndex + 1}. {section.section_name}</h4>
+                                  <p className="mt-1 text-xs text-slate-500">{[section.section_category, section.section_weight != null ? `${section.section_weight}% weight` : null, `${section.questions?.length || 0} questions`].filter(Boolean).join(' · ')}</p>
+                                </div>
+                                <ChevronDown className="h-4 w-4 shrink-0 text-slate-500 transition-transform group-open:rotate-180" />
+                              </summary>
+                              <div className="border-t border-slate-100 px-4 pb-4">
+                                {section.section_instructions && <p className="py-3 text-sm text-slate-500">{section.section_instructions}</p>}
+                                {section.questions?.length ? section.questions.map((question, questionIndex) => (
+                                  <div key={question.question_id || questionIndex} className="border-b border-slate-100 py-3 last:border-b-0 last:pb-0">
+                                    <div className="flex items-start gap-3">
+                                      <span className="shrink-0 text-xs font-semibold text-indigo-600">{sectionIndex + 1}.{questionIndex + 1}</span>
+                                      <div className="min-w-0">
+                                        <p className="text-sm font-medium leading-relaxed text-slate-800 break-words">{question.question_text || 'Untitled question'}</p>
+                                        <div className="mt-1.5 flex flex-wrap gap-x-2 gap-y-1 text-xs text-slate-500">
+                                          <span>{(question.response_type || 'YES_NO').replaceAll('_', ' / ')}</span>
+                                          {question.critical_question && <span className="inline-flex items-center gap-1 text-rose-600"><AlertTriangle className="h-3 w-3" />Critical</span>}
+                                          {question.evidence_policy && question.evidence_policy !== 'NONE' && <span>Evidence: {question.evidence_policy.toLowerCase().replaceAll('_', ' ')}</span>}
+                                        </div>
+                                        {question.instructions && <p className="mt-2 text-xs leading-relaxed text-slate-500">{question.instructions}</p>}
+                                      </div>
                                     </div>
                                   </div>
-                                  {instructions && (
-                                    <div className="ml-7 p-2 bg-slate-50 border border-slate-100 rounded-md flex items-start gap-1.5">
-                                      <Info className="w-3 h-3 text-indigo-500 shrink-0 mt-0.5" />
-                                      <p className="text-[11px] text-slate-500 leading-snug font-medium">Instructions: {instructions}</p>
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })
-                          ) : (
-                            <div className="text-slate-400 text-[11px] italic py-4 text-center">No questions available in this form.</div>
-                          )}
+                                )) : <p className="py-4 text-sm text-slate-500">No questions in this section.</p>}
+                              </div>
+                            </details>
+                          ))}
                         </div>
-
-                        {totalQuestionPages > 1 && (
-                          <div className="flex items-center justify-between text-xs pt-2 border-t border-slate-100">
-                            <span className="text-[11px] font-medium text-slate-400">Question {qStartIndex + 1} of {allFormQuestions.length}</span>
-                            <div className="flex items-center gap-1">
-                              <button disabled={currentQuestionPage === 1} onClick={() => setCurrentQuestionPage((p) => Math.max(p - 1, 1))} className="p-1 rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"><ChevronLeft className="w-3.5 h-3.5" /></button>
-                              <span className="px-1.5 text-slate-600 font-semibold text-[11px]">{currentQuestionPage} / {totalQuestionPages}</span>
-                              <button disabled={currentQuestionPage === totalQuestionPages} onClick={() => setCurrentQuestionPage((p) => Math.min(p + 1, totalQuestionPages))} className="p-1 rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"><ChevronRight className="w-3.5 h-3.5" /></button>
-                            </div>
-                          </div>
-                        )}
-                      </div>
+                      ) : <p className="rounded-xl border border-dashed border-slate-200 p-5 text-sm text-slate-500">No sections in this form.</p>}
                     </div>
                   </div>
                 </div>

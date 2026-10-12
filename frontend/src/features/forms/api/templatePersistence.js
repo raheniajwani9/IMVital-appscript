@@ -74,7 +74,7 @@ export const createLegacyTemplate = async (
   supabase,
   templateId,
   formData,
-  creatorName
+  actorId
 ) => {
   const { error: templateError } = await supabase
     .from('templates')
@@ -87,8 +87,8 @@ export const createLegacyTemplate = async (
       template_version: 'v1.0',
       estimated_minutes: Number(formData.estimated_minutes) || 15,
       active: true,
-      created_by: creatorName,
-      last_edited_by: creatorName
+      created_by: actorId,
+      last_edited_by: actorId
     });
 
   if (templateError) throw templateError;
@@ -106,7 +106,7 @@ export const createLegacyTemplate = async (
       version_label: 'v1.0',
       status: 'PUBLISHED',
       published_at: new Date().toISOString(),
-      created_by: creatorName,
+      created_by: actorId,
       change_summary: 'Initial version',
       template_name: formData.template_name,
       template_category: formData.template_category,
