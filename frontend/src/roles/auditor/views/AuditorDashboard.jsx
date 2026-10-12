@@ -171,7 +171,7 @@ export default function AuditorDashboard({ currentUser, onRefresh }) {
       ] = await Promise.all([
         supabase.from('audits').select('*').eq('auditor_id', currentUser.user_id),
         supabase.from('actions').select('*').eq('owner_email', currentUser.email),
-        supabase.from('locations').select('*')
+        supabase.from('location_imports').select('*')
       ]);
 
       const processedData = processAuditorData(audits || [], actions || [], locations || []);

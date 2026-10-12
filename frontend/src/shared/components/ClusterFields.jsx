@@ -61,7 +61,7 @@ export default function ClusterFields({
 
         {!options.length && (
           <p className="mt-1 text-[10px] font-bold text-amber-600">
-            No clusters loaded from the POD master — check POD_SPREADSHEET_ID and the sheet tab name.
+            No clusters found in location_imports. Confirm it contains cluster data and is readable by this app.
           </p>
         )}
       </div>

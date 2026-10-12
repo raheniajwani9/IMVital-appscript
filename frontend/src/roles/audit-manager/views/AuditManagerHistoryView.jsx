@@ -25,7 +25,7 @@ export default function AuditManagerHistoryView() {
     setLoading(true);
     const [{ data, error }, locationsResult] = await Promise.all([
       supabase.from('audits').select('*').order('reviewed_at', { ascending: false }),
-      supabase.from('locations').select('*')
+      supabase.from('location_imports').select('*')
     ]);
     if (error) setMessage(error.message);
     setAudits(data || []);

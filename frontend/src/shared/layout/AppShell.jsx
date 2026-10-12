@@ -160,22 +160,22 @@ export default function AppShell({
               <nav className="space-y-1">
                 {group.items.map((item) => {
                   const IconComponent = item.icon;
-                  const isActive = currentTab === item.key;
+                  const isActive = currentTab === item.key || item.children?.some((child) => child.key === currentTab);
                   const count = item.countKey ? counts[item.countKey] : undefined;
 
                   return (
-                    <button
-                      key={item.key}
-                      onClick={() => handleTabClick(item.key)}
-                      title={isCollapsed ? item.name : undefined}
-                      className={`group relative w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
-                        isCollapsed ? 'lg:justify-center lg:px-0' : ''
-                      } ${
-                        isActive
-                          ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30 font-bold'
-                          : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
-                      }`}
-                    >
+                    <React.Fragment key={item.key}>
+                      <button
+                        onClick={() => handleTabClick(item.key)}
+                        title={isCollapsed ? item.name : undefined}
+                        className={`group relative w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                          isCollapsed ? 'lg:justify-center lg:px-0' : ''
+                        } ${
+                          isActive
+                            ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30 font-bold'
+                            : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
+                        }`}
+                      >
                       <div
                         className={`flex items-center gap-3 ${
                           isCollapsed ? 'lg:gap-0' : ''
@@ -218,7 +218,32 @@ export default function AppShell({
                           )}
                         </span>
                       )}
-                    </button>
+                      </button>
+                      {item.children?.length > 0 && !isCollapsed && (
+                      <div className="ml-5 mt-1 space-y-1 border-l border-slate-700/70 pl-3">
+                        {item.children.map((child) => {
+                          const ChildIcon = child.icon;
+                          const isChildActive = currentTab === child.key;
+
+                          return (
+                            <button
+                              key={child.key}
+                              type="button"
+                              onClick={() => handleTabClick(child.key)}
+                              className={`w-full flex items-center gap-3 rounded-lg px-3 py-2 text-[11px] font-semibold transition-colors cursor-pointer ${
+                                isChildActive
+                                  ? 'bg-slate-800 text-white'
+                                  : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
+                              }`}
+                            >
+                              <ChildIcon className="h-3.5 w-3.5 shrink-0" />
+                              <span>{child.name}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      )}
+                    </React.Fragment>
                   );
                 })}
               </nav>

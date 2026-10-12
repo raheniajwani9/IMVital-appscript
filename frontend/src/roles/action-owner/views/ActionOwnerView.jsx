@@ -154,7 +154,7 @@ export default function ActionOwnerView({
     }
 
     const { data: locationRows, error: locationsError } = await supabase
-      .from('locations')
+      .from('location_imports')
       .select('*');
 
     if (locationsError) {

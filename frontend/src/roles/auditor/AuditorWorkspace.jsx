@@ -43,6 +43,19 @@ export default function AuditorWorkspace({ currentUser, onLogout }) {
     }
   };
 
+  const fetchLocations = async () => {
+    const rows = [];
+    for (let start = 0; ; start += 1000) {
+      const { data: page, error } = await supabase
+        .from('location_imports')
+        .select('*')
+        .range(start, start + 999);
+      if (error) return { data: rows, error };
+      rows.push(...(page || []));
+      if ((page || []).length < 1000) return { data: rows, error: null };
+    }
+  };
+
   const fetchData = async () => {
     // Guard clause: Wait until user object is fully populated
     if (!currentUser?.email) {
@@ -70,7 +83,7 @@ export default function AuditorWorkspace({ currentUser, onLogout }) {
         supabase.from('templates').select('*'),
         supabase.from('sections').select('*'),
         supabase.from('question_bank').select('*'),
-        supabase.from('locations').select('*'),
+        fetchLocations(),
         supabase.from('form_visibility').select('*')
       ]);
 
@@ -79,6 +92,7 @@ export default function AuditorWorkspace({ currentUser, onLogout }) {
       if (templatesRes.error) console.error("Templates Fetch Error:", templatesRes.error);
       if (sectionsRes.error) console.error("Sections Fetch Error:", sectionsRes.error);
       if (questionsRes.error) console.error("Questions Fetch Error:", questionsRes.error);
+      if (locationsRes.error) console.error("Locations Fetch Error:", locationsRes.error);
       if (visibilityRes.error) throw visibilityRes.error;
 
       const tList = templatesRes.data || [];
@@ -270,6 +284,23 @@ export default function AuditorWorkspace({ currentUser, onLogout }) {
     });
   }, [data.assignments, data.audits, data.locations, data.formVisibility]);
 
+  const enrichedHistoryAudits = useMemo(() => data.audits.map((audit) => {
+    const assignment = enrichedAssignments.find(
+      (row) => String(row.schedule_id) === String(audit.schedule_id)
+    );
+    const isPanIndia = assignment?.pan_india ||
+      String(assignment?.location_id || '').trim().toLowerCase() === 'all locations';
+
+    return {
+      ...audit,
+      audit_scope: audit.audit_scope || assignment?.audit_scope || (isPanIndia ? 'PAN_INDIA' : undefined),
+      re_audit_of: audit.re_audit_of || assignment?.re_audit_of,
+      re_audit_id: audit.re_audit_id || assignment?.re_audit_id,
+      is_reaudit: audit.is_reaudit || assignment?.is_reaudit,
+      audit_type: audit.audit_type || assignment?.audit_type
+    };
+  }), [data.audits, enrichedAssignments]);
+
   useEffect(() => {
     if (!runner) return undefined;
     let cancelled = false;
@@ -436,15 +467,33 @@ export default function AuditorWorkspace({ currentUser, onLogout }) {
     window.scrollTo({ top: 0 });
   };
 
+  const myAuditCategories = {
+    MyAudits: 'ALL',
+    MyAuditsRecurring: 'RECURRING',
+    MyAuditsScheduled: 'SCHEDULED',
+    MyAuditsReAudits: 'RE_AUDITS'
+  };
+  const historyCategories = {
+    History: 'ALL',
+    HistoryRecurring: 'RECURRING',
+    HistoryScheduled: 'SCHEDULED',
+    HistoryReAudits: 'RE_AUDITS'
+  };
+  const breadcrumbLabels = {
+    Dashboard: 'Dashboard',
+    MyAudits: 'My Audits',
+    MyAuditsRecurring: 'Recurring Audits',
+    MyAuditsScheduled: 'Scheduled Audits',
+    MyAuditsReAudits: 'Re-audits',
+    Calendar: 'Calendar',
+    History: 'Submitted',
+    HistoryRecurring: 'Submitted · Recurring',
+    HistoryScheduled: 'Submitted · Scheduled',
+    HistoryReAudits: 'Submitted · Re-audits'
+  };
   const breadcrumbTitle = runner
     ? runner.template?.template_name || runner.assignment.template_name
-    : currentTab === 'Dashboard'
-    ? 'Dashboard'
-    : currentTab === 'MyAudits'
-    ? 'My Audits'
-    : currentTab === 'Calendar'
-    ? 'Calendar'
-    : 'Submitted';
+    : breadcrumbLabels[currentTab] || currentTab;
 
   return (
     <>
@@ -476,13 +525,14 @@ export default function AuditorWorkspace({ currentUser, onLogout }) {
             currentUser={currentUser}
             onRefresh={fetchData}
           />
-        ) : currentTab === 'MyAudits' ? (
+        ) : Object.prototype.hasOwnProperty.call(myAuditCategories, currentTab) ? (
           <MyAuditsView
             assignments={enrichedAssignments}
             templates={data.templates}
             currentUser={currentUser}
             onStartAudit={handleStartAudit}
             onRefreshData={fetchData}
+            category={myAuditCategories[currentTab]}
           />
         ) : currentTab === 'Calendar' ? (
           <AuditorCalendarView
@@ -493,13 +543,14 @@ export default function AuditorWorkspace({ currentUser, onLogout }) {
             onStartAudit={handleStartAudit}
             onRefreshData={fetchData}
           />
-        ) : (
+        ) : Object.prototype.hasOwnProperty.call(historyCategories, currentTab) ? (
           <AuditHistoryView
-            audits={data.audits}
+            audits={enrichedHistoryAudits}
             templates={data.templates}
             locations={data.locations}
+            category={historyCategories[currentTab]}
           />
-        )}
+        ) : null}
       </AppShell>
 
       {pendingPanIndia && (

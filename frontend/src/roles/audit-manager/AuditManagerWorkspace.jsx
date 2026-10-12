@@ -96,7 +96,7 @@ export default function AuditManagerWorkspace({
           .select('*'),
 
         supabase
-          .from('locations')
+          .from('location_imports')
           .select('*')
       ]);
 

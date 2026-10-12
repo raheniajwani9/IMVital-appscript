@@ -13,12 +13,6 @@ import {
 
 const ALL = 'All Locations';
 
-/**
- * Search box (POD ID / Name) + cascading Cluster >> City >> POD selectors.
- *
- * Fully controlled — the parent owns { pod_id, location_id, city, cluster }
- * and receives the whole quad back on every change.
- */
 export default function PodSelector({
   locations = [],
   podId = '',
@@ -30,6 +24,7 @@ export default function PodSelector({
   allowAll = true,
   label = 'POD Selection'
 }) {
+  const [selectionMode, setSelectionMode] = useState('search');
   const [search, setSearch] = useState('');
 
   const available = useMemo(
@@ -40,8 +35,21 @@ export default function PodSelector({
   const clusters = useMemo(() => clusterOptions(available), [available]);
   const cities = useMemo(() => cityOptions(available, cluster), [available, cluster]);
   const pods = useMemo(
-    () => filterPods(available, { cluster, city, search }),
-    [available, cluster, city, search]
+    () => {
+      if (selectionMode !== 'search') return filterPods(available, { cluster, city });
+
+      const query = String(search || '').trim().toLowerCase();
+      if (!query) return filterPods(available);
+
+      const exactIdMatches = available.filter(
+        (pod) => String(podKey(pod) || '').trim().toLowerCase() === query
+      );
+
+      return exactIdMatches.length
+        ? exactIdMatches
+        : filterPods(available, { search });
+    },
+    [available, selectionMode, cluster, city, search]
   );
 
   const isAll = !locationId || locationId === ALL;
@@ -105,59 +113,83 @@ export default function PodSelector({
         )}
       </div>
 
-      {/* Direct search — POD ID or Name */}
-      <div className="relative">
-        <Search className="absolute left-2.5 top-3 h-3.5 w-3.5 text-slate-400" />
-        <input
-          type="text"
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          placeholder="Search POD ID or name directly..."
-          className="w-full rounded-xl border border-slate-200 bg-white p-2.5 pl-8 text-sm font-semibold text-slate-800 placeholder-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-        />
+      <div role="tablist" aria-label="POD selection method" className="grid grid-cols-2 gap-1 rounded-xl bg-slate-100 p-1">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={selectionMode === 'search'}
+          onClick={() => setSelectionMode('search')}
+          className={`rounded-lg px-3 py-2 text-xs font-bold transition-colors ${selectionMode === 'search' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+        >
+          Search by ID
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={selectionMode === 'browse'}
+          onClick={() => {
+            setSelectionMode('browse');
+            setSearch('');
+          }}
+          className={`rounded-lg px-3 py-2 text-xs font-bold transition-colors ${selectionMode === 'browse' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+        >
+          Browse by Location
+        </button>
       </div>
 
-      {/* Cluster >> City */}
-      <div className="grid grid-cols-2 gap-2.5">
-        <div>
-          <label className="mb-1 block text-[10px] font-bold uppercase text-slate-500">
-            Cluster
-          </label>
-          <div className="relative">
-            <Layers className="absolute left-2.5 top-3 h-3.5 w-3.5 text-slate-400" />
-            <select
-              value={cluster}
-              onChange={(event) => handleCluster(event.target.value)}
-              className={selectClass}
-            >
-              <option value="">All Clusters</option>
-              {clusters.map((c) => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
-          </div>
+      {selectionMode === 'search' ? (
+        <div className="relative">
+          <Search className="absolute left-2.5 top-3 h-3.5 w-3.5 text-slate-400" />
+          <input
+            type="search"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Enter POD ID or name..."
+            className="w-full rounded-xl border border-slate-200 bg-white p-2.5 pl-8 text-sm font-semibold text-slate-800 placeholder-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+          />
         </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-2.5">
+          <div>
+            <label className="mb-1 block text-[10px] font-bold uppercase text-slate-500">
+              Cluster
+            </label>
+            <div className="relative">
+              <Layers className="absolute left-2.5 top-3 h-3.5 w-3.5 text-slate-400" />
+              <select
+                value={cluster}
+                onChange={(event) => handleCluster(event.target.value)}
+                className={selectClass}
+              >
+                <option value="">All Clusters</option>
+                {clusters.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            </div>
+          </div>
 
-        <div>
-          <label className="mb-1 block text-[10px] font-bold uppercase text-slate-500">
-            City
-          </label>
-          <div className="relative">
-            <Building2 className="absolute left-2.5 top-3 h-3.5 w-3.5 text-slate-400" />
-            <select
-              value={city}
-              onChange={(event) => handleCity(event.target.value)}
-              disabled={!cities.length}
-              className={selectClass}
-            >
-              <option value="">{cluster ? 'All Cities in Cluster' : 'All Cities'}</option>
-              {cities.map((c) => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
+          <div>
+            <label className="mb-1 block text-[10px] font-bold uppercase text-slate-500">
+              City
+            </label>
+            <div className="relative">
+              <Building2 className="absolute left-2.5 top-3 h-3.5 w-3.5 text-slate-400" />
+              <select
+                value={city}
+                onChange={(event) => handleCity(event.target.value)}
+                disabled={!cluster || !cities.length}
+                className={selectClass}
+              >
+                <option value="">{cluster ? 'Select a City' : 'Select a Cluster first'}</option>
+                {cities.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* POD */}
       <div>
@@ -169,6 +201,7 @@ export default function PodSelector({
           <select
             value={isAll ? ALL : locationId}
             onChange={(event) => handlePod(event.target.value)}
+            disabled={selectionMode === 'browse' && (!cluster || !city)}
             className={selectClass}
           >
             {allowAll && (
@@ -178,7 +211,13 @@ export default function PodSelector({
                   : 'All Locations'}
               </option>
             )}
-            {!allowAll && <option value={ALL} disabled>Select a POD</option>}
+            {!allowAll && (
+              <option value={ALL} disabled>
+                {selectionMode === 'browse' && (!cluster || !city)
+                  ? 'Select a Cluster and City first'
+                  : 'Select a POD'}
+              </option>
+            )}
             {renderPods.map((pod) => (
               <option
                 key={podKey(pod)}
@@ -186,21 +225,24 @@ export default function PodSelector({
               >
                 {podLabel(pod)}
                 {pod.pod_code ? ` (${pod.pod_code})` : ''}
-                {' — '}
-                {podCity(pod)}
+                {' — '}{podCity(pod)}{' · POD ID: '}{podKey(pod)}
               </option>
             ))}
           </select>
         </div>
 
         <div className="mt-1 flex items-center justify-between text-[10px] font-bold text-slate-400">
-          <span>Showing {pods.length} of {available.length} PODs</span>
+          <span>
+            {selectionMode === 'search' && search
+              ? `Found ${pods.length} of ${available.length} matching PODs`
+              : `Showing ${pods.length} of ${available.length} PODs`}
+          </span>
           {!isAll && podId && <span className="text-slate-500">POD ID: {podId}</span>}
         </div>
 
-        {search && !pods.length && (
+        {selectionMode === 'search' && search && !pods.length && (
           <p className="mt-1 text-[10px] font-bold text-amber-600">
-            No POD matches "{search}" within the current Cluster / City filters.
+            No POD matches "{search}". Check the ID or name and try again.
           </p>
         )}
       </div>

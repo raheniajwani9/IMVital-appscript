@@ -82,14 +82,14 @@ async function resolveLocationFields(supabase, assignment, template) {
 
   if (resolvedLocationId) {
     let { data: locData } = await supabase
-      .from('locations')
+      .from('location_imports')
       .select(locSelect)
       .eq('pod_id', resolvedLocationId)
       .maybeSingle();
 
     if (!locData) {
       const r = await supabase
-        .from('locations')
+        .from('location_imports')
         .select(locSelect)
         .filter('"Location ID"', 'eq', resolvedLocationId)
         .maybeSingle();
@@ -98,7 +98,7 @@ async function resolveLocationFields(supabase, assignment, template) {
 
     if (!locData) {
       const r = await supabase
-        .from('locations')
+        .from('location_imports')
         .select(locSelect)
         .ilike('"Store Name"', resolvedLocationId)
         .maybeSingle();
@@ -124,14 +124,14 @@ async function resolveLocationFields(supabase, assignment, template) {
 
       if (!resolvedCluster && schedData.location_id) {
         let { data: locData2 } = await supabase
-          .from('locations')
+          .from('location_imports')
           .select('pod_id, "Cluster", "City"')
           .eq('pod_id', schedData.location_id)
           .maybeSingle();
 
         if (!locData2) {
           const r2 = await supabase
-            .from('locations')
+            .from('location_imports')
             .select('pod_id, "Cluster", "City"')
             .filter('"Location ID"', 'eq', schedData.location_id)
             .maybeSingle();
@@ -140,7 +140,7 @@ async function resolveLocationFields(supabase, assignment, template) {
 
         if (!locData2) {
           const r3 = await supabase
-            .from('locations')
+            .from('location_imports')
             .select('pod_id, "Cluster", "City"')
             .ilike('"Store Name"', schedData.location_id)
             .maybeSingle();
@@ -499,14 +499,14 @@ export default function AuditRunnerView({ assignment, template, currentUser, onE
       if (!resolvedCluster || !resolvedLocationId || !resolvedCity) {
         if (resolvedLocationId) {
           let { data: locData } = await supabase
-            .from('locations')
+            .from('location_imports')
             .select(locSelect)
             .eq('pod_id', resolvedLocationId)
             .maybeSingle();
 
           if (!locData) {
             const r = await supabase
-              .from('locations')
+              .from('location_imports')
               .select(locSelect)
               .filter('"Location ID"', 'eq', resolvedLocationId)
               .maybeSingle();
@@ -515,7 +515,7 @@ export default function AuditRunnerView({ assignment, template, currentUser, onE
 
           if (!locData) {
             const r = await supabase
-              .from('locations')
+              .from('location_imports')
               .select(locSelect)
               .ilike('"Store Name"', resolvedLocationId)
               .maybeSingle();
@@ -540,14 +540,14 @@ export default function AuditRunnerView({ assignment, template, currentUser, onE
 
           if (!resolvedCluster && schedData.location_id) {
             let { data: locData2 } = await supabase
-              .from('locations')
+              .from('location_imports')
               .select('pod_id, "Cluster", "City"')
               .eq('pod_id', schedData.location_id)
               .maybeSingle();
 
             if (!locData2) {
               const r2 = await supabase
-                .from('locations')
+                .from('location_imports')
                 .select('pod_id, "Cluster", "City"')
                 .filter('"Location ID"', 'eq', schedData.location_id)
                 .maybeSingle();
@@ -556,7 +556,7 @@ export default function AuditRunnerView({ assignment, template, currentUser, onE
 
             if (!locData2) {
               const r3 = await supabase
-                .from('locations')
+                .from('location_imports')
                 .select('pod_id, "Cluster", "City"')
                 .ilike('"Store Name"', schedData.location_id)
                 .maybeSingle();

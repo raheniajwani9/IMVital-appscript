@@ -49,7 +49,7 @@ export default function AdminWorkspace({ currentUser, onLogout }) {
         { data: audits },
         { data: responses }, 
         { data: actions },
-        { data: locations },
+        locationsResult,
         { data: formVisibility }
       ] = await Promise.all([
         supabase.from('templates').select('*'),
@@ -61,9 +61,14 @@ export default function AdminWorkspace({ currentUser, onLogout }) {
         supabase.from('responses').select('*'), 
         supabase.from('actions').select('*'),
         // FIXED: Removed the .catch() - local data store safely returns data: null if this fails
-        supabase.from('locations').select('*'),
+        supabase.from('location_imports').select('*'),
         supabase.from('form_visibility').select('*')
       ]);
+
+      const locations = locationsResult?.data || [];
+      if (locationsResult?.error) {
+        console.error('location_imports fetch error:', locationsResult.error);
+      }
 
       setData({
         ...DEFAULT_DATA,
