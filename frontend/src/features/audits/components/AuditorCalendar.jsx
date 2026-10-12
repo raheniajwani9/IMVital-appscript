@@ -277,15 +277,6 @@ export default function AuditorCalendar({
             {currentUser?.name || currentUser?.email}, shown by assignment date.
           </p>
         </div>
-
-        <button
-          type="button"
-          onClick={onRefreshData}
-          className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-semibold text-slate-700 shadow-sm transition-all hover:bg-slate-50"
-        >
-          <RefreshCw className="h-4 w-4" />
-          Reload Assignments
-        </button>
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
