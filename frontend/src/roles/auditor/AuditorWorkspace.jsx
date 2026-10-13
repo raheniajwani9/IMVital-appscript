@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { CheckCircle2, X } from 'lucide-react';
+import { AlertCircle, CheckCircle2, X } from 'lucide-react';
 import AppShell from '../../shared/layout/AppShell';
 import MyAuditsView from './views/MyAuditsView';
 import AuditHistoryView from './views/AuditHistoryView';
@@ -11,6 +11,7 @@ import { supabase } from '../../shared/lib/supabaseClient';
 import PodSelector from '../../shared/components/PodSelector';
 import { podKey } from '../../shared/config/clusters';
 import { isFormVisible, visibilityFor } from '../../features/forms/api/formVisibility';
+import { parseLatLng,distanceInMeters,getCurrentPosition } from '../../features/audits/utils/geofence';
 
 const DEFAULT_DATA = {
   assignments: [],
@@ -181,6 +182,25 @@ export default function AuditorWorkspace({ currentUser, onLogout }) {
       setLoading(false);
     }
   };
+
+  const checkPodGeofence = async (locationId) => {
+    const pod = data.locations.find((location)=> String(podKey(location)) === String(locationId));
+
+    if (!pod) throw new Error('Could not find this POD location.');
+
+    const podCoords = parseLatLng(pod.lat_lng);
+    if (!podCoords) throw new Error('POD location coordinates are missing or invalid.');
+
+    const auditorCoords = await getCurrentPosition();
+    const distance = distanceInMeters(
+      auditorCoords.latitude,
+        auditorCoords.longitude,
+        podCoords.latitude,
+        podCoords.longitude
+      );
+
+      if (distance > 300) throw new Error('You are not in the POD location.');
+  }
 
   useEffect(() => {
     fetchData();
@@ -400,7 +420,14 @@ export default function AuditorWorkspace({ currentUser, onLogout }) {
       setPendingPanIndia({ assignment, template });
       return;
     }
-    launchAudit(assignment, template);
+    try {
+      await checkPodGeofence(
+        assignment.linked_audit_location_id || assignment.location_id
+      );
+      launchAudit(assignment, template);
+    } catch (error) {
+      setToast(error.message || 'Could not verify your location.');
+    }
   };
 
   const startPanIndiaAudit = async () => {
@@ -417,6 +444,7 @@ export default function AuditorWorkspace({ currentUser, onLogout }) {
       if (!isFormVisible(visibility, selectedPod.location_id)) {
         throw new Error('This form is hidden for the selected POD.');
       }
+      await checkPodGeofence(selectedPod.location_id);
       let selectedAssignment = assignment;
       if (assignment.pan_india_candidates) {
         const pod = data.locations.find((location) => String(podKey(location)) === String(selectedPod.location_id));
@@ -570,12 +598,18 @@ export default function AuditorWorkspace({ currentUser, onLogout }) {
       )}
 
       {toast && (
-        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-3 bg-slate-900 text-white px-4 py-3 rounded-2xl shadow-2xl border border-slate-700 animate-in fade-in slide-in-from-bottom-2 duration-200">
-          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+        <div className={`fixed right-6 z-50 flex items-center gap-3 px-4 py-3 rounded-2xl shadow-2xl animate-in fade-in duration-200 ${
+          toast === 'You are not in the POD location.'
+            ? 'top-6 border border-red-200 bg-red-50 text-red-800 slide-in-from-top-2'
+            : 'bottom-6 border border-slate-700 bg-slate-900 text-white slide-in-from-bottom-2'
+        }`}>
+          {toast === 'You are not in the POD location.'
+            ? <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+            : <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />}
           <span className="text-xs font-bold">{toast}</span>
           <button
             onClick={() => setToast('')}
-            className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 transition-colors cursor-pointer"
+            className={`p-1 rounded-lg transition-colors cursor-pointer ${toast === 'You are not in the POD location.' ? 'text-red-500 hover:bg-red-100' : 'text-slate-400 hover:bg-slate-800'}`}
           >
             <X className="w-3.5 h-3.5" />
           </button>
