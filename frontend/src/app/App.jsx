@@ -91,14 +91,16 @@ export default function App() {
             // 3. Insert responses into the database
             if (item.answers) {
               const responsesToInsert = Object.entries(item.answers).map(([qId, ans]) => ({
-                response_id: `RES-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+                response_id: `RES-${item.audit_id}-${qId}`,
                 audit_id: item.audit_id,
                 question_id: qId,
                 template_id: item.template_id,
                 response_value: ans.na ? 'N/A' : ans.value,
                 comment: ans.comment || '',
                 answered_by: item.auditor_id,
-                answered_at: new Date().toISOString()
+                answered_at: new Date().toISOString(),
+                evidence_uris: ans.evidence || [],
+                evidence_count: (ans.evidence || []).length
               }));
               
               if (responsesToInsert.length > 0) {
@@ -107,6 +109,30 @@ export default function App() {
                   .insert(responsesToInsert);
 
                  if (responsesError) throw responsesError;
+              }
+
+              const evidenceRows = Object.entries(item.answers).flatMap(([qId, ans]) =>
+                (ans.evidence || []).map((evidence, index) => ({
+                  evidence_id: evidence.evidence_id || `EVD-${item.audit_id}-${qId}-${index}`,
+                  audit_id: item.audit_id,
+                  action_id: null,
+                  response_id: `RES-${item.audit_id}-${qId}`,
+                  file_name: evidence.file_name || 'Evidence',
+                  drive_file_id: evidence.drive_file_id || null,
+                  file_url: evidence.file_url || null,
+                  mime_type: evidence.mime_type || null,
+                  original_size: evidence.original_size ?? null,
+                  compressed_size: evidence.compressed_size ?? null,
+                  upload_status: 'UPLOADED',
+                  uploaded_at: evidence.uploaded_at || new Date().toISOString()
+                }))
+              );
+
+              if (evidenceRows.length > 0) {
+                const { error: evidenceError } = await supabase
+                  .from('evidence')
+                  .upsert(evidenceRows, { onConflict: 'evidence_id' });
+                if (evidenceError) throw evidenceError;
               }
             }
 

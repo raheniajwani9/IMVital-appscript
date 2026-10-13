@@ -347,12 +347,12 @@ export default function ActionOwnerView({
     setUploadingId(action.action_id);
     setMessage('');
 
+    const bucket = import.meta.env.VITE_SUPABASE_EVIDENCE_BUCKET || 'evidence';
     const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const path = `actions/${action.action_id}/${Date.now()}-${safeName}`;
-
+    const storagePath = `actions/${action.action_id}/${crypto.randomUUID()}-${safeName}`;
     const { error: uploadError } = await supabase.storage
-      .from('evidence')
-      .upload(path, file, { upsert: false });
+      .from(bucket)
+      .upload(storagePath, file, { contentType: file.type || 'application/octet-stream', upsert: false });
 
     if (uploadError) {
       showMessage(`Evidence upload failed: ${uploadError.message}`, 'error');
@@ -360,9 +360,7 @@ export default function ActionOwnerView({
       return;
     }
 
-    const { data: urlData } = supabase.storage
-      .from('evidence')
-      .getPublicUrl(path);
+    const { data: publicUrlData } = supabase.storage.from(bucket).getPublicUrl(storagePath);
 
     const existing = drafts[action.action_id]?.evidence || [];
 
@@ -371,8 +369,9 @@ export default function ActionOwnerView({
         ...existing,
         {
           file_name: file.name,
-          file_url: urlData.publicUrl,
-          storage_path: path,
+          file_url: publicUrlData.publicUrl,
+          storage_path: storagePath,
+          mime_type: file.type,
           uploaded_at: new Date().toISOString()
         }
       ]

@@ -29,6 +29,11 @@ const fmtDateTime = (v) => {
 
 const num = (v) => Number(v) || 0;
 const isTrue = (v) => v === true || String(v).toUpperCase() === 'TRUE';
+const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({
+  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+}[char]));
+const isImageEvidence = (evidence) => String(evidence?.mime_type || '').startsWith('image/') ||
+  /\.(png|jpe?g|gif|webp|bmp)(\?|$)/i.test(evidence?.file_url || '');
 
 function scoreTone(p) {
   if (p >= 90) return { text: 'text-emerald-600', bg: 'bg-emerald-500', ring: 'stroke-emerald-500' };
@@ -215,7 +220,7 @@ export default function AuditReportModal({ auditId, templateName, onClose }) {
     : 'text-blue-600';
 
   /* -------- print / pdf via browser -------- */
-  const handlePrint = () => {
+  const handlePrint = async () => {
     const w = window.open('', '_blank', 'width=900,height=700');
     const title = data?.audit?.template_name || templateName || 'Audit Report';
     w.document.write(`<html><head><title>${title}</title>
@@ -226,6 +231,8 @@ export default function AuditReportModal({ auditId, templateName, onClose }) {
         th{text-align:left;background:#f8fafc;padding:6px 8px;border-bottom:1px solid #e2e8f0}
         td{padding:6px 8px;border-bottom:1px solid #f1f5f9;vertical-align:top}
         .fail{color:#e11d48;font-weight:700} .ok{color:#059669;font-weight:700}
+        .evidence img{display:block;width:auto;max-width:180px;height:auto;max-height:140px;object-fit:contain;margin:2px 0 3px;border:1px solid #e2e8f0;border-radius:4px}
+        .evidence a{font-size:10px;color:#2563eb;word-break:break-all}
       </style></head><body>
       <h1>${title}</h1>
       <div class="sub">Audit ID: ${auditId} · Location: ${data?.audit?.location_id || '—'} ·
@@ -235,18 +242,34 @@ export default function AuditReportModal({ auditId, templateName, onClose }) {
         <th>Section</th><th>Question</th><th>Response</th><th>Score</th><th>Result</th><th>Evidence</th>
       </tr></thead><tbody>`);
     (data?.responses || []).forEach(r => {
-      const urls = (r.evidence || []).map(e => e.file_url).filter(Boolean).join(', ');
+      const evidenceMarkup = (r.evidence || []).map((e) => {
+        if (!e.file_url) return '';
+        const url = escapeHtml(e.file_url);
+        const name = escapeHtml(e.file_name || 'Evidence');
+        return isImageEvidence(e)
+          ? `<a href="${url}" target="_blank"><img src="${url}" alt="${name}"></a><div>${name}</div>`
+          : `<a href="${url}" target="_blank">${name}</a>`;
+      }).join('');
       w.document.write(`<tr>
-        <td>${r.section_name || ''}</td>
-        <td>${r.question_text || ''}</td>
-        <td>${isTrue(r.is_na) ? 'N/A' : (r.response_value || '—')}</td>
-        <td>${r.score || 0}/${r.max_score || 0}</td>
+        <td>${escapeHtml(r.section_name || '')}</td>
+        <td>${escapeHtml(r.question_text || '')}</td>
+        <td>${escapeHtml(isTrue(r.is_na) ? 'N/A' : (r.response_value || '—'))}</td>
+        <td>${escapeHtml(r.score || 0)}/${escapeHtml(r.max_score || 0)}</td>
         <td class="${isTrue(r.is_failure) ? 'fail' : 'ok'}">${isTrue(r.is_failure) ? 'FAIL' : 'PASS'}</td>
-        <td>${urls}</td>
+        <td class="evidence">${evidenceMarkup}</td>
       </tr>`);
     });
     w.document.write(`</tbody></table></body></html>`);
     w.document.close();
+    const images = Array.from(w.document.images);
+    await Promise.all(images.map((image) => {
+      if (image.complete) return Promise.resolve();
+      return new Promise((resolve) => {
+        image.addEventListener('load', resolve, { once: true });
+        image.addEventListener('error', resolve, { once: true });
+        setTimeout(resolve, 5000);
+      });
+    }));
     w.focus();
     w.print();
   };
@@ -549,9 +572,16 @@ export default function AuditReportModal({ auditId, templateName, onClose }) {
                                         href={e.file_url}
                                         target="_blank"
                                         rel="noreferrer"
-                                        className="inline-flex items-center gap-1 text-blue-600 font-bold hover:underline"
+                                        className="inline-flex items-center gap-1.5 text-blue-600 font-bold hover:underline"
                                       >
-                                        <Paperclip className="w-3 h-3" /> {e.file_name || `Evidence ${ei + 1}`}
+                                        {isImageEvidence(e) ? (
+                                          <img
+                                            src={e.file_url}
+                                            alt={e.file_name || `Evidence ${ei + 1}`}
+                                            className="w-12 h-12 rounded-md object-cover border border-slate-200"
+                                          />
+                                        ) : <Paperclip className="w-3 h-3" />}
+                                        {e.file_name || `Evidence ${ei + 1}`}
                                       </a>
                                     ) : null
                                   ))}

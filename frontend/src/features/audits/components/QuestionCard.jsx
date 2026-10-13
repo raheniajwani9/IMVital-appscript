@@ -6,6 +6,7 @@ import {getInputKind,getResponseOptions,getScaleMax,parseBool,commentRequired,ev
 import { supabase } from '../../../shared/lib/supabaseClient'; 
 
 const MAX_EVIDENCE_MB = 8;
+const EVIDENCE_BUCKET = import.meta.env.VITE_SUPABASE_EVIDENCE_BUCKET || 'evidence';
 
 export default function QuestionCard({
   question,
@@ -59,7 +60,6 @@ export default function QuestionCard({
     setValue(clean);
   };
 
-  // 2. Updated to use local data store Storage
   const handleFiles = async (event) => {
     const files = Array.from(event.target.files || []);
     if (!files.length) return;
@@ -77,38 +77,33 @@ export default function QuestionCard({
     try {
       // Process files one by one (or Promise.all)
       for (const file of files) {
-        // Generate a clean, unique file path: auditId/timestamp_filename
-        const fileExt = file.name.split('.').pop();
-        const safeName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
-        const filePath = `${auditId}/${Date.now()}_${safeName}`;
-
         if (!navigator.onLine) {
           throw new Error('You must be online to upload evidence right now.');
         }
 
-        // Upload directly to local data store storage bucket named 'evidence'
-        const { data, error: uploadError } = await supabase.storage
-          .from('evidence')
-          .upload(filePath, file, {
-            cacheControl: '3600',
-            upsert: false
-          });
+        const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+        const storagePath = `${auditId || 'unassigned'}/${question.question_id}/${crypto.randomUUID()}-${safeName}`;
+        const { error: uploadError } = await supabase.storage
+          .from(EVIDENCE_BUCKET)
+          .upload(storagePath, file, { contentType: file.type || 'application/octet-stream', upsert: false });
 
         if (uploadError) throw uploadError;
-
-        // Get the public URL to save into the database
         const { data: publicUrlData } = supabase.storage
-          .from('evidence')
-          .getPublicUrl(filePath);
+          .from(EVIDENCE_BUCKET)
+          .getPublicUrl(storagePath);
 
         // Update the state with the new evidence record
         const record = {
           evidence_id: `EVD-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
           file_name: file.name,
           file_url: publicUrlData.publicUrl,
+          storage_path: storagePath,
           mime_type: file.type,
+          original_size: file.size,
+          compressed_size: file.size,
+          uploaded_at: new Date().toISOString(),
           evidence_type: file.type.startsWith('image/') ? 'PHOTO' : 'FILE',
-          uploaded_by: currentUser?.email || ''
+          uploaded_by: currentUser?.user_id || null
         };
 
         onChange(question.question_id, (prev) => ({
@@ -119,7 +114,17 @@ export default function QuestionCard({
 
     } catch (err) {
       console.error("Upload error:", err);
-      setUploadError(err.message || 'Failed to upload evidence.');
+      let message = err.message || 'Failed to upload evidence.';
+      try {
+        const response = err.context;
+        if (response instanceof Response) {
+          const details = await response.clone().json();
+          message = details.error || message;
+        }
+      } catch {
+        // Keep the SDK message when the response isn't JSON.
+      }
+      setUploadError(message);
     } finally {
       setUploading(false);
       event.target.value = '';

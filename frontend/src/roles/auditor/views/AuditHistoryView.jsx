@@ -54,6 +54,22 @@ const getAuditName = (a, templates = []) => {
 
 const normalize = (value) => String(value || '').trim().toLowerCase();
 
+const getAuditCategory = (audit) => {
+  if (
+    audit.re_audit_of ||
+    audit.re_audit_id ||
+    audit.is_reaudit ||
+    String(audit.audit_type || '').toUpperCase() === 'RE_AUDIT'
+  ) return 'RE_AUDITS';
+
+  const isPanIndia =
+    String(audit.audit_scope || '').toUpperCase() === 'PAN_INDIA' ||
+    audit.pan_india === true ||
+    normalize(audit.location_id) === 'all locations';
+
+  return isPanIndia ? 'RECURRING' : 'SCHEDULED';
+};
+
 const getAuditCluster = (audit, locations = []) => {
   const directCluster =
     audit.cluster_name || audit.cluster || audit.location_cluster || audit.region;
@@ -85,7 +101,7 @@ const getAuditCluster = (audit, locations = []) => {
   ).trim();
 };
 
-export default function AuditHistoryView({ audits = [], templates = [], locations = [] }) {
+export default function AuditHistoryView({ audits = [], templates = [], locations = [], category = 'ALL' }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [clusterFilter, setClusterFilter] = useState('ALL');
@@ -111,6 +127,8 @@ export default function AuditHistoryView({ audits = [], templates = [], location
     const q = searchQuery.trim().toLowerCase();
     
     return allAudits.filter((a) => {
+      if (category !== 'ALL' && getAuditCategory(a) !== category) return false;
+
       // 1. Status Filter Check
       const currentStatus = String(a.status || 'SUBMITTED').toUpperCase();
       if (statusFilter !== 'ALL' && currentStatus !== statusFilter) {
@@ -128,7 +146,7 @@ export default function AuditHistoryView({ audits = [], templates = [], location
         .map((v) => String(v || '').toLowerCase())
         .some((v) => v.includes(q));
     });
-  }, [allAudits, searchQuery, statusFilter, clusterFilter, locations]);
+  }, [allAudits, category, searchQuery, statusFilter, clusterFilter, locations]);
 
   const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE) || 1;
   const paginated = useMemo(() => {
@@ -140,7 +158,11 @@ export default function AuditHistoryView({ audits = [], templates = [], location
     <div className="space-y-6 font-sans text-slate-800">
       <div>
         <span className="text-[11px] font-bold text-blue-600 tracking-wider uppercase">Audit History</span>
-        <h1 className="text-2xl font-bold text-slate-900 tracking-tight">All Audits</h1>
+        <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
+          {category === 'ALL'
+            ? 'All Audits'
+            : `${category === 'RECURRING' ? 'Recurring' : category === 'SCHEDULED' ? 'Scheduled' : 'Re-audits'} Audits`}
+        </h1>
         <p className="text-sm text-slate-500 mt-1">
           Review your ongoing and completed inspections — open <span className="font-semibold">Report</span> for the full breakdown.
         </p>
