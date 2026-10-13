@@ -598,6 +598,7 @@ export default function AuditRunnerView({ assignment, template, currentUser, onE
 
     const responsesToInsert = [];
     const actionsToInsert = [];
+    const evidenceToInsert = [];
     sections.forEach(sec => {
       (sec.questions || []).forEach(q => {
         const ans = answers[q.question_id];
@@ -628,6 +629,23 @@ export default function AuditRunnerView({ assignment, template, currentUser, onE
           answered_at: new Date().toISOString(),
           evidence_uris: ans.evidence || [],
           evidence_count: (ans.evidence || []).length
+        });
+
+        (ans.evidence || []).forEach((item, evidenceIndex) => {
+          evidenceToInsert.push({
+            evidence_id: item.evidence_id || `EVD-${auditId}-${q.question_id}-${evidenceIndex}`,
+            audit_id: auditId,
+            action_id: null,
+            response_id: responseId,
+            file_name: item.file_name || 'Evidence',
+            drive_file_id: item.drive_file_id || null,
+            file_url: item.file_url || null,
+            mime_type: item.mime_type || null,
+            original_size: item.original_size ?? null,
+            compressed_size: item.compressed_size ?? null,
+            upload_status: 'UPLOADED',
+            uploaded_at: item.uploaded_at || new Date().toISOString()
+          });
         });
 
         if (failed && parseBool(q.critical_question)) {
@@ -693,6 +711,13 @@ export default function AuditRunnerView({ assignment, template, currentUser, onE
           .from('responses')
           .insert(responsesToInsert);
         if (responsesError) throw responsesError;
+      }
+
+      if (evidenceToInsert.length > 0) {
+        const { error: evidenceError } = await supabase
+          .from('evidence')
+          .upsert(evidenceToInsert, { onConflict: 'evidence_id' });
+        if (evidenceError) throw evidenceError;
       }
 
       if (actionsToInsert.length > 0) {
@@ -913,6 +938,9 @@ export default function AuditRunnerView({ assignment, template, currentUser, onE
 
   const section = sections[sectionIndex];
   const sectionQuestions = [...(section?.questions || [])].sort((a, b) => (Number(a.question_order) || 0) - (Number(b.question_order) || 0));
+  const isCurrentSectionComplete = section
+    ? validateAudit({ sections: [section] }, answers).length === 0
+    : false;
   const isLastSection = sectionIndex === sections.length - 1;
   const progressPercent = score.total ? Math.round((score.answered / score.total) * 100) : 0;
 
@@ -1050,7 +1078,7 @@ export default function AuditRunnerView({ assignment, template, currentUser, onE
             Review <ChevronRight className="w-4 h-4" />
           </button>
         ) : (
-          <button onClick={() => setSectionIndex((i) => Math.min(i + 1, sections.length - 1))} className="flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-4 sm:px-5 py-2.5 rounded-xl shadow-md transition-all cursor-pointer shrink-0">
+          <button onClick={() => setSectionIndex((i) => Math.min(i + 1, sections.length - 1))} disabled={!isCurrentSectionComplete} className="flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-4 sm:px-5 py-2.5 rounded-xl shadow-md transition-all cursor-pointer shrink-0 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-slate-900">
             Next <ChevronRight className="w-4 h-4" />
           </button>
         )}

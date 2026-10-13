@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   ClipboardCheck, Play, RotateCw, CheckCircle2,
   AlertTriangle, Search, ChevronLeft, ChevronRight, Timer
@@ -52,13 +52,35 @@ const getAuditName = (item, templates, template = getTemplate(templates, item)) 
     'Untitled Audit';
 };
 
-export default function MyAuditsView({ assignments = [], audits = [], templates = [], currentUser, onStartAudit, onRefreshData }) {
+
+const getAssignmentCategory = (assignment) => {
+  if (
+    assignment.re_audit_of ||
+    assignment.re_audit_id ||
+    assignment.is_reaudit ||
+    String(assignment.audit_type || '').toUpperCase() === 'RE_AUDIT'
+  ) {
+    return 'RE_AUDITS';
+  }
+
+  const isPanIndia =
+    String(assignment.audit_scope || '').toUpperCase() === 'PAN_INDIA' ||
+    assignment.pan_india === true ||
+    String(assignment.location_id || '').trim().toLowerCase() === 'all locations';
+
+  return isPanIndia ? 'RECURRING' : 'SCHEDULED';
+};
+export default function MyAuditsView({ assignments = [], audits = [], templates = [], currentUser, onStartAudit, onRefreshData, category = 'ALL' }) {
   const auditList = assignments.length > 0 ? assignments : audits;
 
   const [searchQuery, setSearchQuery] = useState('');
   const [filter, setFilter] = useState('ALL');
   const [priorityFilter, setPriorityFilter] = useState('ALL'); 
   const [currentPage, setCurrentPage] = useState(1);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [category]);
 
   const stats = useMemo(() => {
     const pending = auditList.filter((a) => ['SCHEDULED', 'NOT_STARTED'].includes(a.audit_status)).length;
@@ -72,6 +94,8 @@ export default function MyAuditsView({ assignments = [], audits = [], templates 
     const q = searchQuery.trim().toLowerCase();
 
     const filteredResult = auditList.filter((a) => {
+
+      if (category !== 'ALL' && getAssignmentCategory(a) !== category) return false;
       const currentStatus = a.audit_status || 'NOT_STARTED';
 
       // Status Filters
@@ -98,7 +122,7 @@ export default function MyAuditsView({ assignments = [], audits = [], templates 
       return dateB - dateA; // Descending order
     });
 
-  }, [auditList, filter, priorityFilter, searchQuery, templates]);
+  }, [auditList, category, filter, priorityFilter, searchQuery, templates]);
 
   const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE) || 1;
   const paginated = useMemo(() => {
@@ -117,34 +141,32 @@ export default function MyAuditsView({ assignments = [], audits = [], templates 
             Checklists scheduled for {currentUser?.name || currentUser?.email}. Complete them before the due date.
           </p>
         </div>
-        <button
-          onClick={onRefreshData}
-          className="flex items-center gap-2 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-semibold px-4 py-2.5 rounded-xl shadow-sm transition-all cursor-pointer"
-        >
-          <RotateCw className="w-4 h-4" /> Reload Assignments
-        </button>
       </div>
 
-      {/* Stat cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {[
-          { label: 'To Do', value: stats.pending, icon: ClipboardCheck, tone: 'text-slate-900' },
-          { label: 'In Progress', value: stats.inProgress, icon: Timer, tone: 'text-amber-600' },
-          { label: 'Submitted', value: stats.submitted, icon: CheckCircle2, tone: 'text-emerald-600' },
-          { label: 'Overdue', value: stats.overdue, icon: AlertTriangle, tone: 'text-rose-600' }
-        ].map((card) => {
-          const Icon = card.icon;
-          return (
-            <div key={card.label} className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-4">
-              <div className="flex items-center justify-between">
-                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{card.label}</div>
-                <Icon className="w-3.5 h-3.5 text-slate-300" />
-              </div>
-              <div className={`text-2xl font-black mt-1 ${card.tone}`}>{card.value}</div>
-            </div>
-          );
-        })}
-      </div>
+      {category === 'ALL' && (
+        <>
+          {/* Summary cards belong to the main My Audits view only. */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {[
+              { label: 'To Do', value: stats.pending, icon: ClipboardCheck, tone: 'text-slate-900' },
+              { label: 'In Progress', value: stats.inProgress, icon: Timer, tone: 'text-amber-600' },
+              { label: 'Submitted', value: stats.submitted, icon: CheckCircle2, tone: 'text-emerald-600' },
+              { label: 'Overdue', value: stats.overdue, icon: AlertTriangle, tone: 'text-rose-600' }
+            ].map((card) => {
+              const Icon = card.icon;
+              return (
+                <div key={card.label} className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{card.label}</div>
+                    <Icon className="w-3.5 h-3.5 text-slate-300" />
+                  </div>
+                  <div className={`text-2xl font-black mt-1 ${card.tone}`}>{card.value}</div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
 
       {/* Search + filters */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-white p-3 rounded-2xl border border-slate-200/80 shadow-sm">
@@ -214,11 +236,76 @@ export default function MyAuditsView({ assignments = [], audits = [], templates 
         </div>
       ) : (
         <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
+          <div className="divide-y divide-slate-100 lg:hidden">
+            {paginated.map((assignment) => {
+              const template = getTemplate(templates, assignment);
+              const auditName = getAuditName(assignment, templates, template);
+              const currentStatus = assignment.audit_status || 'NOT_STARTED';
+              const status = STATUS_STYLES[currentStatus] || STATUS_STYLES.NOT_STARTED;
+              const isSubmitted = currentStatus === 'SUBMITTED';
+              const isOverdue = assignment.is_overdue && !isSubmitted;
+              const isResume = currentStatus === 'IN_PROGRESS';
+              const missingTemplate = !template || !(template.sections || []).length;
+
+              return (
+                <article key={assignment.schedule_id || assignment.audit_id} className={`p-4 ${isOverdue ? 'bg-rose-50/30' : ''}`}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <h2 className="break-words text-sm font-bold text-slate-900">{auditName}</h2>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {(template?.questions_count ?? assignment.questions_count) || 0} questions
+                        {Number(template?.estimated_minutes || assignment.estimated_minutes) > 0 && ` · ~${template?.estimated_minutes || assignment.estimated_minutes} min`}
+                      </p>
+                    </div>
+                    <span className={`shrink-0 rounded-md px-2 py-1 text-[10px] font-bold uppercase ${assignment.priority === 'CRITICAL' || assignment.priority === 'HIGH' ? 'border border-rose-200 bg-rose-50 text-rose-600' : 'bg-slate-100 text-slate-600'}`}>
+                      {assignment.priority || 'MEDIUM'}
+                    </span>
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                    <div className="min-w-0 text-xs text-slate-600">
+                      <span className="font-semibold text-slate-400">Location</span>
+                      <span className="ml-2 break-words">{assignment.location_id || 'All Locations'}</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      <span className={`rounded-md border px-2 py-0.5 text-[9px] font-bold uppercase ${status.className}`}>{status.label}</span>
+                      {isOverdue && <span className="inline-flex items-center gap-1 rounded-md bg-rose-600 px-2 py-0.5 text-[9px] font-bold uppercase text-white"><AlertTriangle className="h-2.5 w-2.5" />Overdue</span>}
+                    </div>
+                  </div>
+
+                  {isSubmitted && assignment.last_submitted_at && (
+                    <p className="mt-2 text-[10px] font-bold text-emerald-600">Last submitted {formatDate(assignment.last_submitted_at)}{assignment.submission_count > 1 && ` · ${assignment.submission_count} submissions`}</p>
+                  )}
+
+                  <div className="mt-4">
+                    {missingTemplate ? (
+                      <p className="text-center text-[10px] font-bold uppercase text-amber-600">Checklist unavailable</p>
+                    ) : (
+                      <button
+                        disabled={isSubmitted || isOverdue}
+                        onClick={() => onStartAudit(assignment, template)}
+                        className={`flex flex-wrap gap-1.5 text-white text-xs font-bold px-5 py-2.5 rounded-xl shadow-md transition-all bg-amber-600 hover:bg-amber-700 shadow-amber-500/20 cursor-pointer ${
+                          isSubmitted || isOverdue
+                            ? 'cursor-not-allowed bg-slate-400 opacity-60'
+                            : isResume
+                            ? 'cursor-pointer bg-amber-600 hover:bg-amber-700'
+                            : 'cursor-pointer bg-blue-600 hover:bg-blue-700'
+                        }`}
+                      >
+                        <Play className="h-4 w-4" />
+                        {isResume ? 'Resume Audit' : isSubmitted ? 'Completed' : 'Start Audit'}
+                      </button>
+                    )}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1150px] border-collapse text-left text-xs">
+            <table className="hidden w-full min-w-[1150px] border-collapse text-left text-xs lg:table">
               <thead className="bg-slate-50">
                 <tr className="border-b border-slate-200 text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                  <th className="px-4 py-3">Audit ID</th><th className="px-4 py-3">Form</th><th className="px-4 py-3">Location</th><th className="px-4 py-3">Priority</th><th className="px-4 py-3">Status</th><th className="px-4 py-3 text-right">Action</th>
+                  <th className="px-4 py-3">Form Name</th><th className="px-4 py-3">Location</th><th className="px-4 py-3">Priority</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -263,26 +350,27 @@ export default function MyAuditsView({ assignments = [], audits = [], templates 
                     )}
                   </div>
                 </td>
-                <td className="px-4 py-4 text-right">
-                  {missingTemplate ? (
-                    <span className="text-[10px] font-bold text-amber-600 uppercase">Checklist unavailable</span>
-                  ) : (
-                    <button
-                      // NEW: Disable if submitted OR overdue
-                      disabled={isSubmitted || isOverdue} 
-                      onClick={() => onStartAudit(assignment, template)}
-                      className={`flex items-center gap-2 text-white text-xs font-bold px-5 py-2.5 rounded-xl shadow-md transition-all ${
-                        isSubmitted || isOverdue
-                          ? 'bg-slate-400 opacity-60 cursor-not-allowed shadow-none'
-                          : isResume
-                          ? 'bg-amber-600 hover:bg-amber-700 shadow-amber-500/20 cursor-pointer'
-                          : 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/20 cursor-pointer'
-                      }`}
-                    >
-                      <Play className="w-4 h-4" />
-                      {isResume ? 'Resume Audit' : isSubmitted ? 'Completed' : 'Start Audit'}
-                    </button>
-                  )}
+                <td className="px-4 py-4">
+                  <div className=" flex-wrap">
+                    {missingTemplate ? (
+                      <span className="text-[10px] font-bold text-amber-600 uppercase">Checklist unavailable</span>
+                    ) : (
+                      <button
+                        disabled={isSubmitted || isOverdue}
+                        onClick={() => onStartAudit(assignment, template)}
+                        className={`inline-flex items-center gap-2 text-white text-xs font-bold px-5 py-2.5 rounded-xl shadow-md transition-all ${
+                          isSubmitted || isOverdue
+                            ? 'bg-slate-400 opacity-60 cursor-not-allowed shadow-none'
+                            : isResume
+                            ? 'bg-amber-600 hover:bg-amber-700 shadow-amber-500/20 cursor-pointer'
+                            : 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/20 cursor-pointer'
+                        }`}
+                      >
+                        <Play className="w-4 h-4" />
+                        {isResume ? 'Resume Audit' : isSubmitted ? 'Completed' : 'Start Audit'}
+                      </button>
+                    )}
+                  </div>
                 </td>
               </tr>
             );
