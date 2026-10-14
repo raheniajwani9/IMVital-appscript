@@ -392,7 +392,7 @@ export default function AuditManagerCalendarView({
                   <div className="flex items-center gap-2">
                     <MapPin className="h-4 w-4 text-slate-400" />
                     <span>
-                      POD / Location: {audit.location_id || 'N/A'}
+                      POD / Location: {audit.pod_name || audit.location_id || 'N/A'}
                     </span>
                   </div>
 

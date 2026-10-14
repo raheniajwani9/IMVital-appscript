@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight, MapPin, PlayCircle } from 'lucide-react';
+import { getPodName } from '../../../shared/utils/locationLabels';
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const WEEKDAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
@@ -59,6 +60,7 @@ export default function AuditorCalendarView({
   assignments = [],
   audits = [],
   templates = [],
+  locations = [],
   currentUser,
   onStartAudit
 }) {
@@ -310,7 +312,7 @@ export default function AuditorCalendarView({
                         <p className="text-xs font-semibold text-slate-900 leading-snug">{auditName}</p>
                         <p className="flex items-center gap-1 text-[10px] font-medium text-slate-500 mt-1">
                           <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
-                          <span className="truncate">{a.location_id || 'All Locations'}</span>
+                          <span className="truncate">{getPodName(locations, a.location_id, a.pod_name)}</span>
                         </p>
                       </div>
                       <span

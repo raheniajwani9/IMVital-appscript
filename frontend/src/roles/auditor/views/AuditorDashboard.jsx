@@ -8,6 +8,7 @@ import {
   BarChart as RBar, Bar, XAxis, YAxis, CartesianGrid
 } from 'recharts';
 import { supabase } from '../../../shared/lib/supabaseClient'; // Import local data store client
+import { getPodName } from '../../../shared/utils/locationLabels';
 
 /* ---- KpiCard ---- */
 function KpiCard({ icon: Icon, label, value, sub, color, bg, border }) {
@@ -135,7 +136,7 @@ function processAuditorData(audits, actions, locations = []) {
     const locationId = String(audit.location_id || audit.pod_id || '').trim();
     const location = locations.find((item) => [item.location_id, item.pod_id, item['Location ID'], item.store_id, item['Store Name'], item.store_name, item.location_name]
       .some((value) => String(value || '').trim().toLowerCase() === locationId.toLowerCase()));
-    const label = location?.['Store Name'] || location?.store_name || location?.location_name || locationId || 'Unknown location';
+    const label = getPodName(locations, locationId, location?.location_name || 'Unknown location');
     byLocationMap.set(label, (byLocationMap.get(label) || 0) + 1);
   });
   const byLocation = [...byLocationMap.entries()]

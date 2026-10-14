@@ -3,6 +3,7 @@ import {
   ClipboardCheck, Play, RotateCw, CheckCircle2,
   AlertTriangle, Search, ChevronLeft, ChevronRight, Timer
 } from 'lucide-react';
+import { getPodName } from '../../../shared/utils/locationLabels';
 
 const ITEMS_PER_PAGE = 8;
 
@@ -55,6 +56,7 @@ const getAuditName = (item, templates, template = getTemplate(templates, item)) 
 
 const getAssignmentCategory = (assignment) => {
   if (
+    String(assignment.schedule_id || '').toUpperCase().startsWith('REAUDIT-') ||
     assignment.re_audit_of ||
     assignment.re_audit_id ||
     assignment.is_reaudit ||
@@ -70,7 +72,7 @@ const getAssignmentCategory = (assignment) => {
 
   return isPanIndia ? 'RECURRING' : 'SCHEDULED';
 };
-export default function MyAuditsView({ assignments = [], audits = [], templates = [], currentUser, onStartAudit, onRefreshData, category = 'ALL' }) {
+export default function MyAuditsView({ assignments = [], audits = [], templates = [], locations = [], currentUser, onStartAudit, onRefreshData, category = 'ALL' }) {
   const auditList = assignments.length > 0 ? assignments : audits;
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -265,7 +267,7 @@ export default function MyAuditsView({ assignments = [], audits = [], templates 
                   <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
                     <div className="min-w-0 text-xs text-slate-600">
                       <span className="font-semibold text-slate-400">Location</span>
-                      <span className="ml-2 break-words">{assignment.location_id || 'All Locations'}</span>
+                      <span className="ml-2 break-words">{getPodName(locations, assignment.location_id, assignment.pod_name)}</span>
                     </div>
                     <div className="flex flex-wrap gap-1.5">
                       <span className={`rounded-md border px-2 py-0.5 text-[9px] font-bold uppercase ${status.className}`}>{status.label}</span>
@@ -332,7 +334,7 @@ export default function MyAuditsView({ assignments = [], audits = [], templates 
                   <div className="mt-1 text-[10px] text-slate-500">{(template?.questions_count ?? assignment.questions_count) || 0} questions{Number(template?.estimated_minutes || assignment.estimated_minutes) > 0 ? ` · ~${template?.estimated_minutes || assignment.estimated_minutes} min` : ''}</div>
                   {isSubmitted && assignment.last_submitted_at && <div className="mt-1 text-[10px] font-bold text-emerald-600">Last submitted {formatDate(assignment.last_submitted_at)}{assignment.submission_count > 1 && ` · ${assignment.submission_count} submissions`}</div>}
                 </td>
-                <td className="px-4 py-4 text-slate-700">{assignment.location_id || 'All Locations'}</td>
+                <td className="px-4 py-4 text-slate-700">{getPodName(locations, assignment.location_id, assignment.pod_name)}</td>
                 <td className="px-4 py-4">
                   <span className={`rounded-md px-2 py-1 text-[10px] font-bold uppercase ${assignment.priority === 'CRITICAL' || assignment.priority === 'HIGH' ? 'border border-rose-200 bg-rose-50 text-rose-600' : 'bg-slate-100 text-slate-600'}`}>{assignment.priority || 'MEDIUM'}</span>
                 </td>

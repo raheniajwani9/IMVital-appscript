@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Search, RefreshCw } from 'lucide-react';
 import { supabase } from '../../../shared/lib/supabaseClient';
+import { getPodName } from '../../../shared/utils/locationLabels';
 
 const formatDate = (value) => value ? new Date(value).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }) : 'N/A';
 
@@ -93,7 +94,7 @@ export default function AuditManagerHistoryView() {
                     <tr key={audit.audit_id} className="align-top text-slate-700 hover:bg-slate-50/70">
                       <td className="px-4 py-3 font-semibold text-slate-900">{audit.template_name || audit.audit_id}</td>
                       <td className="px-4 py-3">{audit.audit_id}</td>
-                      <td className="px-4 py-3">{audit.location_id || 'N/A'}</td>
+                      <td className="px-4 py-3">{getPodName(locations, audit.location_id)}</td>
                       <td className="px-4 py-3">{audit.auditor_name || audit.auditor_email || 'N/A'}</td>
                       <td className="px-4 py-3">{audit.score_percent ?? 0}%</td>
                       <td className="px-4 py-3">{audit.reviewed_by || 'N/A'}</td>

@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 
 import { supabase } from '../../../shared/lib/supabaseClient';
+import { getPodName } from '../../../shared/utils/locationLabels';
 
 const STATUS_OPTIONS = [
   'ALL',
@@ -68,20 +69,26 @@ const isOverdue = (action) => {
   return new Date(action.due_date).getTime() < Date.now();
 };
 
-export default function ActionCenterView({ currentUser }) {
+export default function ActionCenterView({ currentUser, initialStatus = 'PENDING_VERIFICATION' }) {
   const [actions, setActions] = useState([]);
+  const [locations, setLocations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
 
   const [search, setSearch] = useState('');
   // Open directly on owner-submitted requests so incoming work is immediately visible.
-  const [statusFilter, setStatusFilter] = useState('PENDING_VERIFICATION');
+  const [statusFilter, setStatusFilter] = useState(initialStatus);
   const [priorityFilter, setPriorityFilter] = useState('ALL');
 
   const loadActions = async () => {
     setLoading(true);
     setMessage('');
+
+    const { data: locationRows, error: locationsError } = await supabase
+      .from('location_imports')
+      .select('*');
+    if (!locationsError) setLocations(locationRows || []);
 
     const { data, error } = await supabase
       .from('actions')
@@ -422,7 +429,7 @@ export default function ActionCenterView({ currentUser }) {
                   <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
                     <InfoItem label="Audit" value={action.audit_id || 'N/A'} />
                     <InfoItem label="Owner" value={action.owner_email || action.owner_user_id || 'Unassigned'} icon={UserRound} />
-                    <InfoItem label="Location" value={action.location_id || 'N/A'} icon={MapPin} />
+                    <InfoItem label="Location" value={getPodName(locations, action.location_id)} icon={MapPin} />
                     <InfoItem label="Risk" value={action.risk_category || 'General'} />
                     <InfoItem label="Due date" value={formatDate(action.due_date)} icon={CalendarDays} />
                     <InfoItem label="Created" value={formatDate(action.created_at)} icon={Clock3} />

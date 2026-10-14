@@ -1,22 +1,12 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import {
-  ArrowLeft, ChevronLeft, ChevronRight, Loader2, Save, Send, CheckCircle2,
-  AlertTriangle, MapPin, Calendar, CloudOff, Wifi, Camera, ScanLine, X,
-  Gauge, Star, ListChecks, ShieldCheck, Check
-} from 'lucide-react';
-
+import {ArrowLeft, ChevronLeft, ChevronRight, Loader2, Save, Send, CheckCircle2,AlertTriangle, MapPin, Calendar, CloudOff, Wifi, Camera, ScanLine, X,Gauge, Star, ListChecks, ShieldCheck, Check} from 'lucide-react';
 import QuestionCard from '../../../features/audits/components/QuestionCard';
 import ScannerModal from '../../../features/audits/components/ScannerModal';
-import {
-  computeAuditScore,
-  validateAudit,
-  isNegativeAnswer,
-  hasValue,
-  parseBool
-} from '../../../features/audits/utils/auditEngine';
+import {computeAuditScore,validateAudit,isNegativeAnswer,hasValue,parseBool} from '../../../features/audits/utils/auditEngine';
 import { supabase } from '../../../shared/lib/supabaseClient';
 import { normalizeRole } from '../../../shared/config/Roles';
 import { userClusters } from '../../../shared/config/clusters';
+import { getPodName } from '../../../shared/utils/locationLabels';
 
 const AUTOSAVE_DELAY_MS = 1500;
 
@@ -158,7 +148,7 @@ async function resolveLocationFields(supabase, assignment, template) {
   return { cluster: resolvedCluster, city: resolvedCity, location_id: resolvedLocationId };
 }
 
-export default function AuditRunnerView({ assignment, template, currentUser, onExit, onRefreshData }) {
+export default function AuditRunnerView({ assignment, template, locations = [], currentUser, onExit, onRefreshData }) {
   const [step, setStep] = useState('PRE_CHECKS');
   const [checks, setChecks] = useState({ network: navigator.onLine, location: false, camera: false });
   const [checking, setChecking] = useState(true);
@@ -223,6 +213,7 @@ export default function AuditRunnerView({ assignment, template, currentUser, onE
         const managers = (data || []).filter(
           (user) => normalizeRole(user.role) === 'AUDIT_MANAGER' && sharesCluster(user)
         );
+        console.log("Audit managers",managers)
         const owners = (data || []).filter(
           (user) => normalizeRole(user.role) === 'ACTION_OWNER' && sharesCluster(user)
         );
@@ -953,7 +944,7 @@ export default function AuditRunnerView({ assignment, template, currentUser, onE
           </button>
           <h1 className="text-2xl font-bold text-slate-900 tracking-tight">{template?.template_name || assignment.template_name}</h1>
           <div className="flex flex-wrap items-center gap-3 mt-2 text-xs font-semibold text-slate-500">
-            <span className="flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5 text-slate-400" /> {assignment.location_id || 'All Locations'}</span>
+            <span className="flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5 text-slate-400" /> {getPodName(locations, assignment.location_id, assignment.pod_name)}</span>
             <span className="flex items-center gap-1.5"><Calendar className="w-3.5 h-3.5 text-slate-400" /> Due {assignment.due_date || 'N/A'}</span>
           </div>
         </div>

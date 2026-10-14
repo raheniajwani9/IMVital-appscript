@@ -4,6 +4,7 @@ import {
   AlertTriangle, CheckCircle2, XCircle, Eye, Clock
 } from 'lucide-react';
 import AuditReportModal from '../../../features/audits/components/AuditReportModal';
+import { getPodName } from '../../../shared/utils/locationLabels';
 
 const ITEMS_PER_PAGE = 10;
 
@@ -260,7 +261,7 @@ export default function AuditHistoryView({ audits = [], templates = [], location
                     </td>
                     <td className="p-4">
                       <span className="flex items-center gap-1.5 text-slate-700">
-                        <MapPin className="w-3.5 h-3.5 text-slate-400" /> {audit.location_id || 'All Locations'}
+                        <MapPin className="w-3.5 h-3.5 text-slate-400" /> {getPodName(locations, audit.location_id || audit.pod_id)}
                       </span>
                     </td>
                     <td className="p-4 text-slate-600">

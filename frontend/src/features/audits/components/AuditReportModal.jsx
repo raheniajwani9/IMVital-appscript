@@ -6,6 +6,7 @@ import {
   Eye, Flag, Star
 } from 'lucide-react';
 import { supabase } from '../../../shared/lib/supabaseClient'; // 1. Import your local data store client
+import { getPodName } from '../../../shared/utils/locationLabels';
 
 /* ---------------------------------------------------------------
    Small helpers — date/score formatting used across the report
@@ -34,6 +35,9 @@ const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => 
 }[char]));
 const isImageEvidence = (evidence) => String(evidence?.mime_type || '').startsWith('image/') ||
   /\.(png|jpe?g|gif|webp|bmp)(\?|$)/i.test(evidence?.file_url || '');
+const normalizeEvidence = (items) => (Array.isArray(items) ? items : [])
+  .filter(Boolean)
+  .map((item) => typeof item === 'string' ? { file_url: item, file_name: 'Evidence' } : item);
 
 function scoreTone(p) {
   if (p >= 90) return { text: 'text-emerald-600', bg: 'bg-emerald-500', ring: 'stroke-emerald-500' };
@@ -101,6 +105,7 @@ export default function AuditReportModal({ auditId, templateName, onClose }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [data, setData] = useState(null);
+  const [locations, setLocations] = useState([]);
   const [openSection, setOpenSection] = useState(null);
   const [tab, setTab] = useState('responses'); // responses | actions
   const [tracking, setTracking] = useState(false);
@@ -122,16 +127,41 @@ export default function AuditReportModal({ auditId, templateName, onClose }) {
       const [
         { data: audit, error: auditError },
         { data: responses, error: responsesError },
-        { data: actions, error: actionsError }
+        { data: actions, error: actionsError },
+        { data: evidenceRows, error: evidenceError },
+        { data: locationRows, error: locationsError }
       ] = await Promise.all([
         supabase.from('audits').select('*').eq('audit_id', auditId).single(),
         supabase.from('responses').select('*').eq('audit_id', auditId),
-        supabase.from('actions').select('*').eq('audit_id', auditId)
+        supabase.from('actions').select('*').eq('audit_id', auditId),
+        supabase.from('evidence').select('*').eq('audit_id', auditId),
+        supabase.from('location_imports').select('*')
       ]);
 
       if (auditError) throw auditError;
       if (responsesError) throw responsesError;
       if (actionsError) throw actionsError;
+      if (evidenceError) console.warn('Could not load evidence records:', evidenceError);
+      if (!locationsError) setLocations(locationRows || []);
+
+      const evidenceByResponse = new Map();
+      (evidenceRows || []).forEach((item) => {
+        if (!item.response_id) return;
+        const records = evidenceByResponse.get(String(item.response_id)) || [];
+        records.push(item);
+        evidenceByResponse.set(String(item.response_id), records);
+      });
+
+      const attachEvidence = (response) => {
+        const stored = normalizeEvidence(response.evidence_uris);
+        const linked = evidenceByResponse.get(String(response.response_id)) || [];
+        const merged = new Map();
+        [...stored, ...linked].forEach((item) => {
+          const key = item.evidence_id || item.file_url || item.drive_file_id || item.file_name;
+          if (key) merged.set(String(key), { ...merged.get(String(key)), ...item });
+        });
+        return { ...response, evidence: Array.from(merged.values()) };
+      };
 
       // Group responses by section to calculate section scores
       const sectionsMap = {};
@@ -157,15 +187,11 @@ export default function AuditReportModal({ auditId, templateName, onClose }) {
         success: true,
         audit,
         responses: responses.map(r => ({
-          ...r,
-          is_na: r.response_value === 'N/A', // Compute NA locally based on value
-          evidence: r.evidence_uris || [] // Map the JSONB array
+          ...attachEvidence(r),
+          is_na: r.response_value === 'N/A' // Compute NA locally based on value
         })),
         sections,
-        failed_items: failed_items.map(r => ({
-          ...r,
-          evidence: r.evidence_uris || []
-        })),
+        failed_items: failed_items.map(attachEvidence),
         actions,
         review: { status: audit.status, review_comment: audit.review_comment }
       });
@@ -235,7 +261,7 @@ export default function AuditReportModal({ auditId, templateName, onClose }) {
         .evidence a{font-size:10px;color:#2563eb;word-break:break-all}
       </style></head><body>
       <h1>${title}</h1>
-      <div class="sub">Audit ID: ${auditId} · Location: ${data?.audit?.location_id || '—'} ·
+      <div class="sub">Audit ID: ${auditId} · Location: ${escapeHtml(getPodName(locations, data?.audit?.location_id, '—'))} ·
         Submitted: ${fmtDateTime(data?.audit?.submitted_at)} · Auditor: ${data?.audit?.auditor_name || data?.audit?.auditor_email || '—'} ·
         Score: ${num(data?.audit?.score_percent)}% (${data?.audit?.rating || '—'}) · Review: ${stats?.review || '—'}</div>
       <table><thead><tr>
@@ -340,7 +366,7 @@ export default function AuditReportModal({ auditId, templateName, onClose }) {
               {/* ===== Meta strip ===== */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
                 {[
-                  { icon: MapPin, label: 'Location', value: data.audit.location_id || 'All Locations' },
+                  { icon: MapPin, label: 'Location', value: getPodName(locations, data.audit.location_id) },
                   { icon: Calendar, label: 'Submitted', value: fmtDate(data.audit.submitted_at) },
                   { icon: User, label: 'Auditor', value: data.audit.auditor_name || data.audit.auditor_email || '—' },
                   { icon: ListChecks, label: 'Sections', value: stats.sections }
