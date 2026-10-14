@@ -657,6 +657,7 @@ export default function AuditRunnerView({ assignment, template, locations = [], 
     });
 
     payload.actions = actionsToInsert;
+    payload.action_owner_id = actionsToInsert[0]?.action_owner_id || null;
 
     if (!navigator.onLine) {
       const queue = JSON.parse(localStorage.getItem('offline_sync_queue') || '[]');
@@ -690,6 +691,7 @@ export default function AuditRunnerView({ assignment, template, locations = [], 
           total_questions: score.total || 0,
           result: (score.percent >= 75 && score.criticalFailures === 0) ? 'PASSED' : 'FAILED',
           audit_manager_id: selectedAuditManagerId,
+          action_owner_id: actionsToInsert[0]?.action_owner_id || null,
         })
         .eq('audit_id', auditId);
 

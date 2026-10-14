@@ -424,6 +424,11 @@ export default function ActionOwnerView({
       updated_at: now
     };
 
+    const ownerComment = (draft.comment || '').trim();
+    if (ownerComment) {
+      payload.closure_comment = ownerComment;
+    }
+
     if (nextStatus === 'ACCEPTED' && !action.accepted_at) {
       payload.accepted_at = now;
     }
@@ -453,7 +458,7 @@ export default function ActionOwnerView({
         new_status: nextStatus,
         changed_by: currentUser?.user_id || currentUser?.email,
         changed_by_email: currentUser?.email || null,
-        comment: (draft.comment || '').trim() || null,
+        comment: ownerComment || null,
         created_at: now
       });
 

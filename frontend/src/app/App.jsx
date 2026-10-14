@@ -83,6 +83,7 @@ export default function App() {
                 total_questions: item.summary?.total || 0,
                 result: (item.summary?.percent >= 75 && item.summary?.criticalFailures === 0) ? 'PASSED' : 'FAILED', 
                 audit_manager_id: item.audit_manager_id || null,
+                action_owner_id: item.action_owner_id || item.actions?.[0]?.action_owner_id || null,
               })
               .eq('audit_id', item.audit_id);
               
