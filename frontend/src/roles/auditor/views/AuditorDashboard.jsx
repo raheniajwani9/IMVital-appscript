@@ -197,13 +197,6 @@ export default function AuditorDashboard({ currentUser, onRefresh }) {
             Your audit performance across all assignments
           </p>
         </div>
-        <button
-          onClick={() => { fetchData(); onRefresh && onRefresh(); }}
-          className="flex items-center gap-2 text-xs font-bold text-slate-600 hover:text-blue-600 bg-slate-100 hover:bg-slate-200 px-4 py-2.5 rounded-xl transition-colors cursor-pointer"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-          Refresh
-        </button>
       </div>
 
       {loading ? (
