@@ -8,10 +8,12 @@ import {
   Search,
   MapPin,
   UserRound,
-  FileCheck2
+  FileCheck2,
+  ChevronLeft
 } from 'lucide-react';
 
 import { supabase } from '../../../shared/lib/supabaseClient';
+import { getPodName } from '../../../shared/utils/locationLabels';
 import AuditReportModal from '../../../features/audits/components/AuditReportModal';
 
 const REVIEW_STYLES = {
@@ -46,9 +48,23 @@ const normalizeStatus = (value) => {
   return String(value || '').trim().toUpperCase();
 };
 
-export default function AuditManagerView({ currentUser }) {
+const getAuditCategory = (audit, schedules) => {
+  const schedule = schedules.find((item) => String(item.schedule_id) === String(audit.schedule_id));
+  const isReAudit = audit.re_audit_of || audit.re_audit_id || audit.is_reaudit || String(audit.audit_type || '').toUpperCase() === 'RE_AUDIT';
+  const isPanIndia = String(audit.audit_scope || '').toUpperCase() === 'PAN_INDIA'
+    || audit.pan_india === true
+    || schedule?.pan_india === true
+    || String(audit.location_id || schedule?.location_id || '').trim().toLowerCase() === 'all locations';
+
+  return isReAudit ? 'RE_AUDITS' : isPanIndia ? 'RECURRING' : 'SCHEDULED';
+};
+
+export default function AuditManagerView({ currentUser, auditType = 'ALL' }) {
   const [audits, setAudits] = useState([]);
+  const [schedules, setSchedules] = useState([]);
+  const [locations, setLocations] = useState([]);
   const [selectedAudit, setSelectedAudit] = useState(null);
+  const [showDetails, setShowDetails] = useState(false);
   const [actions, setActions] = useState([]);
   const [actionHistory, setActionHistory] = useState([]);
   const [reviewHistory, setReviewHistory] = useState([]);
@@ -76,18 +92,25 @@ export default function AuditManagerView({ currentUser }) {
   const loadAudits = async () => {
     setLoading(true);
 
-    const { data, error } = await supabase
-      .from('audits')
+    const [auditsResult, schedulesResult, locationsResult] = await Promise.all([
+      supabase.from('audits')
       .select('*')
-      .in('status', ['SUBMITTED', 'COMPLETED'])
-      .order('submitted_at', { ascending: false });
+      .eq('audit_manager_id',currentUser.user_id)
+      .in('status',['SUBMITTED','COMPLETED'])
+      .order('created_at', { ascending: false }),
+      supabase.from('schedules').select('*'),
+      supabase.from('location_imports').select('*')
+    ]);
 
-    if (error) {
-      setMessage(error.message);
+    if (auditsResult.error || schedulesResult.error) {
+      setMessage((auditsResult.error || schedulesResult.error).message);
       setAudits([]);
     } else {
-      setAudits(data || []);
+      setAudits(auditsResult.data || []);
+      setSchedules(schedulesResult.data || []);
     }
+    if (locationsResult.error) console.error('Location names could not be loaded:', locationsResult.error);
+    else setLocations(locationsResult.data || []);
 
     setLoading(false);
   };
@@ -146,13 +169,9 @@ export default function AuditManagerView({ currentUser }) {
     loadAudits();
   }, []);
 
-  useEffect(() => {
-    if (!selectedAudit && audits.length > 0) {
-      loadAuditDetails(audits[0]);
-    }
-  }, [audits, selectedAudit]);
-
   const filteredAudits = audits.filter((audit) => {
+    if (auditType !== 'ALL' && getAuditCategory(audit, schedules) !== auditType) return false;
+
     const query = search.toLowerCase().trim();
 
     if (!query) return true;
@@ -250,9 +269,100 @@ export default function AuditManagerView({ currentUser }) {
         setMessage(requestError.message);
         return;
       }
+
+      let previousAssignment = null;
+      if (selectedAudit.schedule_id) {
+        const { data, error: assignmentError } = await supabase
+          .from('schedules')
+          .select('*')
+          .eq('schedule_id', selectedAudit.schedule_id)
+          .maybeSingle();
+
+        if (assignmentError) {
+          setSaving(false);
+          setMessage(`Re-audit request was recorded, but the auditor assignment could not be loaded: ${assignmentError.message}`);
+          return;
+        }
+        previousAssignment = data;
+      }
+
+      const assignedEmail = previousAssignment?.assigned_auditor_email || selectedAudit.auditor_email;
+      const templateId = previousAssignment?.template_id || selectedAudit.template_id;
+      if (!assignedEmail || !templateId) {
+        setSaving(false);
+        setMessage('Re-audit request was recorded, but the original auditor or checklist could not be identified.');
+        return;
+      }
+
+      const reAuditLocationId =
+        selectedAudit.location_id || previousAssignment?.location_id || '';
+      let reAuditCluster =
+        selectedAudit.cluster || previousAssignment?.cluster || '';
+
+      if (
+        !reAuditCluster &&
+        reAuditLocationId &&
+        reAuditLocationId.toLowerCase() !== 'all locations'
+      ) {
+        let { data: location } = await supabase
+          .from('location_imports')
+          .select('pod_id, "Location ID", "Store Name", "Cluster"')
+          .eq('pod_id', reAuditLocationId)
+          .maybeSingle();
+
+        if (!location) {
+          const result = await supabase
+            .from('location_imports')
+            .select('pod_id, "Location ID", "Store Name", "Cluster"')
+            .filter('"Location ID"', 'eq', reAuditLocationId)
+            .maybeSingle();
+          location = result.data;
+        }
+
+        if (!location) {
+          const result = await supabase
+            .from('location_imports')
+            .select('pod_id, "Location ID", "Store Name", "Cluster"')
+            .ilike('"Store Name"', reAuditLocationId)
+            .maybeSingle();
+          location = result.data;
+        }
+
+        reAuditCluster = location?.Cluster || location?.cluster || '';
+      }
+
+      if (!reAuditCluster) {
+        setSaving(false);
+        setMessage(`Could not find a cluster for location "${reAuditLocationId || 'unknown'}".`);
+        return;
+      }
+
+      const createdAt = new Date().toISOString();
+      const { error: reAuditAssignmentError } = await supabase
+        .from('schedules')
+        .insert({
+          schedule_id: `REAUDIT-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          template_id: templateId,
+          location_id: reAuditLocationId,
+          cluster: reAuditCluster,
+          city: previousAssignment?.city || selectedAudit.city || '',
+          frequency: 'ONE_TIME',
+          run_date: createdAt.slice(0, 10),
+          due_date: null,
+          assigned_auditor: previousAssignment?.assigned_auditor || selectedAudit.auditor_name || assignedEmail,
+          assigned_auditor_email: assignedEmail,
+          priority: previousAssignment?.priority || selectedAudit.priority || 'MEDIUM',
+          created_at: createdAt
+        });
+
+      if (reAuditAssignmentError) {
+        setSaving(false);
+        setMessage(`Re-audit request was recorded, but the auditor assignment could not be created: ${reAuditAssignmentError.message}`);
+        return;
+      }
     }
 
-    if (selectedAudit.schedule_id) {
+    if (selectedAudit.schedule_id && decision !== 'REQUEST_REAUDIT') {
       const { data: previousAssignment, error: assignmentReadError } = await supabase
         .from('schedules')
         .select('*')
@@ -423,13 +533,13 @@ export default function AuditManagerView({ currentUser }) {
             </span>
             <div>
               <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600">Manager Review</span>
-              <h1 className="text-2xl font-black tracking-tight text-slate-900">Audit Reviews</h1>
-              <p className="mt-0.5 text-sm text-slate-500">Review audit answers, evidence, actions, and closure status.</p>
+              <h1 className="text-2xl font-black tracking-tight text-slate-900">{showDetails ? selectedAudit?.template_name || 'Audit details' : 'Audit Reviews'}</h1>
+              <p className="mt-0.5 text-sm text-slate-500">{showDetails ? 'Inspect the submission, review evidence, and complete your decision.' : 'Review audit answers, evidence, actions, and closure status.'}</p>
             </div>
           </div>
-          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-xs font-bold text-amber-800">
+          {!showDetails && <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-xs font-bold text-amber-800">
             {audits.filter((audit) => !['APPROVED', 'CLOSED'].includes(normalizeStatus(audit.review_status))).length} audits need review
-          </div>
+          </div>}
         </div>
 
         {message && (
@@ -438,7 +548,8 @@ export default function AuditManagerView({ currentUser }) {
           </div>
         )}
 
-        <div className="grid items-start gap-5 xl:grid-cols-[340px_minmax(0,1fr)]">
+        <div className="space-y-5">
+          {!showDetails && (
           <div className="space-y-3">
             <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
               <div className="relative">
@@ -456,7 +567,7 @@ export default function AuditManagerView({ currentUser }) {
               </div>
             </div>
 
-            <div className="space-y-2">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
             {filteredAudits.map((audit) => {
               const reviewStatus =
                 audit.review_status || 'PENDING_REVIEW';
@@ -464,7 +575,10 @@ export default function AuditManagerView({ currentUser }) {
               return (
                 <button
                   key={audit.audit_id}
-                  onClick={() => loadAuditDetails(audit)}
+                  onClick={() => {
+                    setShowDetails(true);
+                    loadAuditDetails(audit);
+                  }}
                   className={`w-full rounded-2xl border bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${
                     selectedAudit?.audit_id === audit.audit_id
                       ? 'border-blue-400 ring-4 ring-blue-50'
@@ -488,7 +602,7 @@ export default function AuditManagerView({ currentUser }) {
 
                   <div className="mt-3 space-y-1.5 text-xs text-slate-500">
                     <p className="flex items-center gap-2 truncate"><UserRound className="h-3.5 w-3.5 shrink-0 text-slate-400" />{audit.auditor_name || audit.auditor_email || 'Unknown auditor'}</p>
-                    <p className="flex items-center gap-2 truncate"><MapPin className="h-3.5 w-3.5 shrink-0 text-slate-400" />{audit.location_id || 'Location unavailable'}</p>
+                    <p className="flex items-center gap-2 truncate"><MapPin className="h-3.5 w-3.5 shrink-0 text-slate-400" />{getPodName(locations, audit.location_id)}</p>
                   </div>
                   <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-2 text-[10px] font-semibold text-slate-400">
                     <span>Score <strong className="text-slate-700">{audit.score_percent ?? 0}%</strong></span>
@@ -500,9 +614,17 @@ export default function AuditManagerView({ currentUser }) {
             {!filteredAudits.length && <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">No audits match your search.</div>}
             </div>
           </div>
+          )}
 
-          {selectedAudit && (
+          {showDetails && selectedAudit && (
             <div className="space-y-5">
+              <button
+                type="button"
+                onClick={() => setShowDetails(false)}
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 shadow-sm transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+              >
+                <ChevronLeft className="h-4 w-4" /> Back to audit reviews
+              </button>
               <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
                 <div className="flex items-start justify-between gap-4">
                   <div>
@@ -524,7 +646,7 @@ export default function AuditManagerView({ currentUser }) {
 
                     <p className="mt-1 text-xs text-slate-500">
                       POD / Location:{' '}
-                      {selectedAudit.location_id || 'N/A'}
+                      {getPodName(locations, selectedAudit.location_id)}
                     </p>
                   </div>
 
@@ -678,7 +800,7 @@ export default function AuditManagerView({ currentUser }) {
             </div>
           )}
 
-          {!selectedAudit && !loadingDetails && (
+          {showDetails && !selectedAudit && !loadingDetails && (
             <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-12 text-center">
               <ShieldCheck className="mx-auto h-10 w-10 text-slate-300" />
               <h2 className="mt-3 font-bold text-slate-800">No audit selected</h2>
@@ -686,7 +808,7 @@ export default function AuditManagerView({ currentUser }) {
             </div>
           )}
 
-          {loadingDetails && (
+          {showDetails && loadingDetails && (
             <div className="rounded-xl bg-white p-6 text-sm text-slate-500">
               Loading audit details...
             </div>

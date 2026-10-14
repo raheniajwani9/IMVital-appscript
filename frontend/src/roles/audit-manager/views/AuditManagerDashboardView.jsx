@@ -10,6 +10,7 @@ import {
   ShieldCheck
 } from 'lucide-react';
 import { supabase } from '../../../shared/lib/supabaseClient';
+import { getPodName } from '../../../shared/utils/locationLabels';
 
 const status = (value) => String(value || '').trim().toUpperCase();
 
@@ -47,7 +48,8 @@ export default function AuditManagerDashboardView() {
   const [data, setData] = useState({
     audits: [],
     actions: [],
-    requests: []
+    requests: [],
+    locations: []
   });
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
@@ -62,10 +64,11 @@ export default function AuditManagerDashboardView() {
     setMessage('');
 
     try {
-      const [auditsResult, actionsResult, requestsResult] = await Promise.all([
+      const [auditsResult, actionsResult, requestsResult, locationsResult] = await Promise.all([
         supabase.from('audits').select('*'),
         supabase.from('actions').select('*'),
-        supabase.from('re_audit_requests').select('*')
+        supabase.from('re_audit_requests').select('*'),
+        supabase.from('location_imports').select('*')
       ]);
 
       const error =
@@ -80,7 +83,8 @@ export default function AuditManagerDashboardView() {
       setData({
         audits: auditsResult.data || [],
         actions: actionsResult.data || [],
-        requests: requestsResult.data || []
+        requests: requestsResult.data || [],
+        locations: locationsResult.data || []
       });
     } catch (error) {
       setMessage(error?.message || 'Unable to load the manager dashboard.');
@@ -362,7 +366,7 @@ export default function AuditManagerDashboardView() {
                       </div>
 
                       <p className="mt-1 text-sm text-slate-500">
-                        {audit.location_name || audit.location_id || 'No location'}
+                        {getPodName(data.locations, audit.location_id, audit.location_name || 'No location')}
                         {' · '}
                         {audit.auditor_name ||
                           audit.auditor_email ||

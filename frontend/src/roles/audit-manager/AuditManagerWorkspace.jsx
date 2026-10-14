@@ -9,6 +9,8 @@ import {
   LayoutDashboard,
   History,
   FileBarChart,
+  Repeat,
+  Calendar,
 } from 'lucide-react';
 
 import AppShell from '../../shared/layout/AppShell';
@@ -20,10 +22,11 @@ import ReAuditView from './views/ReAuditView';
 import AuditManagerDashboardView from './views/AuditManagerDashboardView';
 import AuditManagerHistoryView from './views/AuditManagerHistoryView';
 import AuditManagerReportsView from './views/AuditManagerReportsView';
+import ActionHistoryView from './views/ActionHistoryView';
 
 const MANAGER_NAV_CONFIG = {
   breadcrumb: 'AUDIT MANAGER',
-  defaultTab: 'Reviews',
+  defaultTab: 'ScheduledReviews',
   groups: [
     {
       title: 'REVIEW WORKSPACE',
@@ -34,24 +37,24 @@ const MANAGER_NAV_CONFIG = {
           icon: LayoutDashboard
         },
         {
-          key: 'Reviews',
-          name: 'Reviews',
-          icon: ShieldCheck
+          key: 'Audits',
+          name: 'Audits',
+          icon: ShieldCheck,
+          children: [
+            { key: 'ScheduledReviews', name: 'Scheduled reviews', icon: Calendar },
+            { key: 'RecurringReviews', name: 'Recurring reviews', icon: Repeat },
+            { key: 'ReAudits', name: 'Re-audits', icon: RotateCcw },
+            { key: 'AuditHistory', name: 'History', icon: History }
+          ]
         },
         {
           key: 'Actions',
-          name: 'Action Center',
-          icon: ClipboardCheck
-        },
-        {
-          key: 'ReAudits',
-          name: 'Re-audits',
-          icon: RotateCcw
-        },
-        {
-          key: 'History',
-          name: 'Audit History',
-          icon: History
+          name: 'Actions',
+          icon: ClipboardCheck,
+          children: [
+            { key: 'ActionReviews', name: 'Action reviews', icon: ShieldCheck },
+            { key: 'ActionHistory', name: 'Action history', icon: History }
+          ]
         },
         {
           key: 'Reports',
@@ -72,7 +75,7 @@ export default function AuditManagerWorkspace({
   currentUser,
   onLogout
 }) {
-  const [currentTab, setCurrentTab] = useState('Reviews');
+  const [currentTab, setCurrentTab] = useState('ScheduledReviews');
   const [calendarAudits, setCalendarAudits] = useState([]);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState('');
@@ -122,6 +125,8 @@ export default function AuditManagerWorkspace({
         const location = locations.find((item) => {
           const possibleValues = [
             item.pod_id,
+            item.pod_name,
+            item['POD Name'],
             item.location_id,
             item['Location ID'],
             item['Store Name']
@@ -164,9 +169,11 @@ export default function AuditManagerWorkspace({
             'All Locations',
 
           pod_name:
+            location?.pod_name ||
+            location?.['POD Name'] ||
+            location?.['Store Name'] ||
+            location?.store_name ||
             location?.pod_id ||
-            location?.location_id ||
-            location?.['Location ID'] ||
             locationValue ||
             'N/A',
 
@@ -228,9 +235,14 @@ export default function AuditManagerWorkspace({
         currentTab={currentTab}
         onTabChange={setCurrentTab}
         counts={counts}
-        breadcrumbTitle={
-          currentTab
-        }
+        breadcrumbTitle={{
+          ScheduledReviews: 'Scheduled Audit Reviews',
+          RecurringReviews: 'Recurring Audit Reviews',
+          ReAudits: 'Re-audits',
+          AuditHistory: 'Audit History',
+          ActionReviews: 'Action Reviews',
+          ActionHistory: 'Action History'
+        }[currentTab] || currentTab}
         loading={loading}
         loadingLabel="Loading audit manager workspace..."
         onRefresh={fetchCalendarData}
@@ -238,19 +250,23 @@ export default function AuditManagerWorkspace({
       >
         {currentTab === 'Dashboard' ? (
           <AuditManagerDashboardView />
-        ) : currentTab === 'Reviews' ? (
+        ) : currentTab === 'Audits' || currentTab === 'ScheduledReviews' || currentTab === 'RecurringReviews' ? (
           <AuditManagerView
             currentUser={currentUser}
+            auditType={currentTab === 'RecurringReviews' ? 'RECURRING' : currentTab === 'ScheduledReviews' ? 'SCHEDULED' : 'ALL'}
           />
-        ) : currentTab === 'Actions' ? (
+        ) : currentTab === 'Actions' || currentTab === 'ActionReviews' ? (
           <ActionCenterView
             currentUser={currentUser}
+            initialStatus={currentTab === 'ActionReviews' ? 'PENDING_VERIFICATION' : 'ALL'}
           />
+        ) : currentTab === 'ActionHistory' ? (
+          <ActionHistoryView />
         ) : currentTab === 'ReAudits' ? (
           <ReAuditView
             currentUser={currentUser}
           />
-        ) : currentTab === 'History' ? (
+        ) : currentTab === 'AuditHistory' ? (
           <AuditManagerHistoryView />
         ) : currentTab === 'Reports' ? (
           <AuditManagerReportsView />

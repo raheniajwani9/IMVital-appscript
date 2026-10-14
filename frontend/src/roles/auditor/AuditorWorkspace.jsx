@@ -317,7 +317,8 @@ export default function AuditorWorkspace({ currentUser, onLogout }) {
       re_audit_of: audit.re_audit_of || assignment?.re_audit_of,
       re_audit_id: audit.re_audit_id || assignment?.re_audit_id,
       is_reaudit: audit.is_reaudit || assignment?.is_reaudit,
-      audit_type: audit.audit_type || assignment?.audit_type
+      audit_type: audit.audit_type || assignment?.audit_type ||
+        (String(audit.schedule_id || '').toUpperCase().startsWith('REAUDIT-') ? 'RE_AUDIT' : undefined)
     };
   }), [data.audits, enrichedAssignments]);
 
@@ -532,6 +533,7 @@ export default function AuditorWorkspace({ currentUser, onLogout }) {
         onTabChange={(tab) => {
           setRunner(null);
           setCurrentTab(tab);
+          fetchData();
         }}
         counts={counts}
         breadcrumbTitle={breadcrumbTitle}
@@ -544,6 +546,7 @@ export default function AuditorWorkspace({ currentUser, onLogout }) {
           <AuditRunnerView
             assignment={runner.assignment}
             template={runner.template}
+            locations={data.locations}
             currentUser={currentUser}
             onExit={handleExitRunner}
             onRefreshData={fetchData}
@@ -557,6 +560,7 @@ export default function AuditorWorkspace({ currentUser, onLogout }) {
           <MyAuditsView
             assignments={enrichedAssignments}
             templates={data.templates}
+            locations={data.locations}
             currentUser={currentUser}
             onStartAudit={handleStartAudit}
             onRefreshData={fetchData}
@@ -567,6 +571,7 @@ export default function AuditorWorkspace({ currentUser, onLogout }) {
             assignments={enrichedAssignments}
             audits={data.audits}
             templates={data.templates}
+            locations={data.locations}
             currentUser={currentUser}
             onStartAudit={handleStartAudit}
             onRefreshData={fetchData}

@@ -4,10 +4,18 @@ import {
   Search,
   CheckCircle2,
   XCircle,
-  Clock
+  Clock,
+  ChevronLeft,
+  MapPin,
+  UserRound,
+  CalendarDays,
+  Eye,
+  AlertTriangle
 } from 'lucide-react';
 
 import { supabase } from '../../../shared/lib/supabaseClient';
+import { getPodName } from '../../../shared/utils/locationLabels';
+import AuditReportModal from '../../../features/audits/components/AuditReportModal';
 
 const STATUS_OPTIONS = [
   'ALL',
@@ -24,6 +32,30 @@ const STATUS_STYLES = {
   COMPLETED: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   REJECTED: 'bg-rose-50 text-rose-700 border-rose-200',
   CANCELLED: 'bg-slate-100 text-slate-600 border-slate-200'
+};
+
+const getAuditCluster = (audit = {}) => String(
+  audit.cluster_name || audit.cluster || audit.location_cluster || audit.region || ''
+).trim();
+const requestKey = (request) => `${request.audit_id}:${request.created_at}`;
+const getPodLabel = (locations, value) => {
+  const raw = String(value || '').trim();
+  if (!raw || raw.toLowerCase() === 'all locations') return 'All Locations';
+
+  const normalized = raw.toLowerCase();
+  const location = locations.find((item) => [
+    item.pod_id,
+    item['Location ID'],
+    item.location_id,
+    item['Store Name'],
+    item.store_name,
+    item.pod_name,
+    item['POD Name']
+  ].some((candidate) => String(candidate || '').trim().toLowerCase() === normalized));
+
+  const podId = String(location?.pod_id || location?.['Location ID'] || raw).trim();
+  const podName = getPodName(locations, raw);
+  return podName && podName !== podId ? `${podId} / ${podName}` : podId;
 };
 
 const normalize = (value) => {
@@ -48,9 +80,12 @@ const formatDate = (value) => {
 export default function ReAuditView({ currentUser }) {
   const [requests, setRequests] = useState([]);
   const [audits, setAudits] = useState([]);
+  const [locations, setLocations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
+  const [activeRequestKey, setActiveRequestKey] = useState(null);
+  const [reportAudit, setReportAudit] = useState(null);
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
@@ -62,7 +97,8 @@ export default function ReAuditView({ currentUser }) {
 
     const [
       requestsResult,
-      auditsResult
+      auditsResult,
+      locationsResult
     ] = await Promise.all([
       supabase
         .from('re_audit_requests')
@@ -71,6 +107,10 @@ export default function ReAuditView({ currentUser }) {
 
       supabase
         .from('audits')
+        .select('*'),
+
+      supabase
+        .from('location_imports')
         .select('*')
     ]);
 
@@ -87,6 +127,7 @@ export default function ReAuditView({ currentUser }) {
     } else {
       setAudits(auditsResult.data || []);
     }
+    if (!locationsResult.error) setLocations(locationsResult.data || []);
 
     setLoading(false);
   };
@@ -111,12 +152,8 @@ export default function ReAuditView({ currentUser }) {
     }));
   }, [requests, auditMap]);
 
-  const getCluster = (audit = {}) => String(
-    audit.cluster_name || audit.cluster || audit.location_cluster || audit.region || ''
-  ).trim();
-
   const clusterOptions = useMemo(() => [...new Set(
-    enrichedRequests.map(({ audit }) => getCluster(audit || '')).filter(Boolean)
+    enrichedRequests.map(({ audit }) => getAuditCluster(audit || '')).filter(Boolean)
   )].sort((a, b) => a.localeCompare(b)), [enrichedRequests]);
 
   const filteredRequests = useMemo(() => {
@@ -128,7 +165,7 @@ export default function ReAuditView({ currentUser }) {
 
       const matchesStatus =
         statusFilter === 'ALL' || status === statusFilter;
-      const cluster = getCluster(audit);
+      const cluster = getAuditCluster(audit);
       const matchesCluster = clusterFilter === 'ALL' || cluster.toLowerCase() === clusterFilter.toLowerCase();
 
       const searchableText = [
@@ -158,28 +195,151 @@ export default function ReAuditView({ currentUser }) {
 
     const { error } = await supabase
       .from('re_audit_requests')
-      .update({
-        status: nextStatus
-      })
+      .update({ status: nextStatus })
       .eq('audit_id', request.audit_id)
+      .eq('created_at', request.created_at)
       .eq('status', request.status);
 
     if (error) {
       setSaving(false);
       setMessage(error.message);
-      return;
+      return false;
     }
 
     setSaving(false);
-    setMessage(`Re-audit request marked as ${nextStatus}.`);
-
     await loadRequests();
+    setMessage(`Re-audit request marked as ${nextStatus}.`);
+    return true;
+  };
+
+  const openReview = async (request) => {
+    if (normalize(request.status) === 'OPEN') {
+      const updated = await updateRequestStatus(request, 'IN_PROGRESS');
+      if (!updated) return;
+    }
+    setActiveRequestKey(requestKey(request));
   };
 
   if (loading) {
     return (
       <div className="p-8 text-sm font-semibold text-slate-500">
         Loading re-audit requests...
+      </div>
+    );
+  }
+
+  const activeRequest = enrichedRequests.find(
+    (request) => requestKey(request) === activeRequestKey
+  );
+
+  if (activeRequest) {
+    const audit = activeRequest.audit || {};
+    const status = normalize(activeRequest.status);
+    return (
+      <div className="space-y-5">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <button
+            type="button"
+            onClick={() => setActiveRequestKey(null)}
+            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"
+          >
+            <ChevronLeft className="h-4 w-4" /> Back to re-audit requests
+          </button>
+        </div>
+
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-wider text-blue-600">Audit Manager / Re-audits</p>
+            <h1 className="mt-1 text-2xl font-bold text-slate-900">Review re-audit request</h1>
+            <p className="mt-1 text-sm text-slate-500">{audit.template_name || 'Audit'} · {activeRequest.audit_id}</p>
+          </div>
+          <span className={`rounded-md border px-2.5 py-1.5 text-[10px] font-bold ${STATUS_STYLES[status] || 'border-slate-200 bg-slate-100 text-slate-600'}`}>
+            {status || 'OPEN'}
+          </span>
+        </div>
+
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-4">
+            <div>
+              <h2 className="text-base font-bold text-slate-900">Original audit</h2>
+              <p className="mt-1 text-xs text-slate-500">Review the submission and the reason for requesting another audit.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setReportAudit({ auditId: activeRequest.audit_id, templateName: audit.template_name })}
+              className="flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-xs font-bold text-white hover:bg-slate-800"
+            >
+              <Eye className="h-4 w-4" /> View Questions and Evidence
+            </button>
+          </div>
+
+          <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+            {[
+              { label: 'Previous score', value: `${audit.score_percent ?? 0}%`, icon: CheckCircle2 },
+              { label: 'Cluster', value: getAuditCluster(audit) || 'Not recorded', icon: MapPin },
+              { label: 'Location (POD ID / Name)', value: getPodLabel(locations, audit.location_id), icon: MapPin },
+              { label: 'Auditor', value: audit.auditor_name || audit.auditor_email || 'Unknown', icon: UserRound }
+            ].map(({ label, value, icon: Icon }) => (
+              <div key={label} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-slate-500"><Icon className="h-3.5 w-3.5" />{label}</div>
+                <p className="mt-2 break-words text-sm font-bold text-slate-900">{value}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-5 grid gap-4 lg:grid-cols-2">
+            <section className="rounded-xl border border-purple-200 bg-purple-50 p-4">
+              <div className="flex items-center gap-2 text-sm font-bold text-purple-900"><AlertTriangle className="h-4 w-4" /> Reason for re-audit</div>
+              <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">{activeRequest.reason || 'No reason was provided.'}</p>
+              <div className="mt-4 flex items-center gap-2 border-t border-purple-200 pt-3 text-xs text-slate-500">
+                <CalendarDays className="h-4 w-4" /> Requested {formatDate(activeRequest.created_at)} by {activeRequest.requested_by_email || 'Unknown'}
+              </div>
+            </section>
+
+            <section className="rounded-xl border border-slate-200 bg-white p-4">
+              <h2 className="text-sm font-bold text-slate-900">Original audit outcome</h2>
+              <dl className="mt-3 space-y-2.5 text-xs">
+                <div className="flex justify-between gap-4"><dt className="text-slate-500">Result</dt><dd className="font-bold text-slate-800">{audit.result || audit.rating || '—'}</dd></div>
+                <div className="flex justify-between gap-4"><dt className="text-slate-500">Failures</dt><dd className="font-bold text-slate-800">{audit.failure_count ?? 0}</dd></div>
+                <div className="flex justify-between gap-4"><dt className="text-slate-500">Critical failures</dt><dd className="font-bold text-slate-800">{audit.critical_failures ?? 0}</dd></div>
+                <div className="flex justify-between gap-4"><dt className="text-slate-500">Submitted</dt><dd className="text-right font-bold text-slate-800">{formatDate(audit.submitted_at)}</dd></div>
+              </dl>
+            </section>
+          </div>
+
+          <div className="mt-5 flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-4">
+            {status !== 'COMPLETED' && status !== 'REJECTED' && (
+              <>
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={async () => {
+                    const updated = await updateRequestStatus(activeRequest, 'REJECTED');
+                    if (updated) setActiveRequestKey(null);
+                  }}
+                  className="flex items-center gap-2 rounded-xl bg-rose-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
+                >Reject request</button>
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={async () => {
+                    const updated = await updateRequestStatus(activeRequest, 'COMPLETED');
+                    if (updated) setActiveRequestKey(null);
+                  }}
+                  className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
+                ><CheckCircle2 className="h-4 w-4" /> Mark review completed</button>
+              </>
+            )}
+          </div>
+        </section>
+
+        {reportAudit && (
+          <AuditReportModal
+            auditId={reportAudit.auditId}
+            templateName={reportAudit.templateName}
+            onClose={() => setReportAudit(null)}
+          />
+        )}
       </div>
     );
   }
@@ -267,11 +427,11 @@ export default function ReAuditView({ currentUser }) {
                       {audit.template_name ||
                         request.audit_id}
                     </td>
-                    <td className="px-4 py-3">{getCluster(audit) || 'N/A'}</td>
+                    <td className="px-4 py-3">{getAuditCluster(audit) || 'N/A'}</td>
                     <td className="px-4 py-3">{request.audit_id}</td>
                     <td className="px-4 py-3">{request.requested_by_email || 'N/A'}</td>
                     <td className="px-4 py-3">{audit.auditor_name || audit.auditor_email || 'N/A'}</td>
-                    <td className="px-4 py-3">{audit.location_id || 'N/A'}</td>
+                    <td className="px-4 py-3">{getPodLabel(locations, audit.location_id)}</td>
                     <td className="px-4 py-3">{audit.score_percent ?? 0}%</td>
                     <td className="px-4 py-3">{formatDate(request.created_at)}</td>
                     <td className="px-4 py-3">
@@ -285,23 +445,18 @@ export default function ReAuditView({ currentUser }) {
                     </span></td>
                     <td className="max-w-[220px] whitespace-normal px-4 py-3">{request.reason || 'No reason provided.'}</td>
                     <td className="px-4 py-3"><div className="flex flex-wrap gap-2">
-                  {status === 'OPEN' && (
+                  {(status === 'OPEN' || status === 'IN_PROGRESS') && (
                     <>
                       <button
                         disabled={saving}
-                        onClick={() =>
-                          updateRequestStatus(
-                            request,
-                            'IN_PROGRESS'
-                          )
-                        }
+                        onClick={() => openReview(request)}
                         className="flex items-center gap-2 rounded-lg bg-amber-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50"
                       >
-                        <Clock className="h-4 w-4" />
-                        Start Review
+                        {status === 'OPEN' ? <Clock className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        {status === 'OPEN' ? 'Start Review' : 'Continue Review'}
                       </button>
 
-                      <button
+                      {status === 'OPEN' && <button
                         disabled={saving}
                         onClick={() =>
                           updateRequestStatus(
@@ -313,24 +468,8 @@ export default function ReAuditView({ currentUser }) {
                       >
                         <XCircle className="h-4 w-4" />
                         Reject
-                      </button>
+                      </button>}
                     </>
-                  )}
-
-                  {status === 'IN_PROGRESS' && (
-                    <button
-                      disabled={saving}
-                      onClick={() =>
-                        updateRequestStatus(
-                          request,
-                          'COMPLETED'
-                        )
-                      }
-                      className="flex items-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50"
-                    >
-                      <CheckCircle2 className="h-4 w-4" />
-                      Mark Completed
-                    </button>
                   )}
 
                 </div></td>
@@ -341,6 +480,13 @@ export default function ReAuditView({ currentUser }) {
           </table>
         </div>}
       </section>
+      {reportAudit && (
+        <AuditReportModal
+          auditId={reportAudit.auditId}
+          templateName={reportAudit.templateName}
+          onClose={() => setReportAudit(null)}
+        />
+      )}
     </div>
   );
 }
