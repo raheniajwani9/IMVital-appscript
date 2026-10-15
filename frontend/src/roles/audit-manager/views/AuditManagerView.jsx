@@ -494,11 +494,11 @@ export default function AuditManagerView({ currentUser, auditType = 'ALL' }) {
     const { error: historyError } = await supabase
       .from('action_history')
       .insert({
+        history_id: crypto.randomUUID(),
         action_id: action.action_id,
         audit_id: action.audit_id,
         old_status: action.status,
         new_status: nextStatus,
-        changed_by: currentUser.user_id || currentUser.email,
         changed_by_email: currentUser.email,
         comment: comment.trim() || null,
         created_at: new Date().toISOString()

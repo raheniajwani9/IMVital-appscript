@@ -308,6 +308,8 @@ export default function ActionOwnerView({
 
       if (historyError) {
         console.error('Could not load action history:', historyError);
+        setMessage(`Could not load action history: ${historyError.message}`);
+        setMessageType('error');
       } else {
         const grouped = {};
 
@@ -452,11 +454,11 @@ export default function ActionOwnerView({
     const { error: historyError } = await supabase
       .from('action_history')
       .insert({
+        history_id: crypto.randomUUID(),
         action_id: action.action_id,
         audit_id: action.audit_id,
         old_status: action.status || null,
         new_status: nextStatus,
-        changed_by: currentUser?.user_id || currentUser?.email,
         changed_by_email: currentUser?.email || null,
         comment: ownerComment || null,
         created_at: now
@@ -1036,6 +1038,17 @@ function ActionOwnerDetailPage({
                   <p className="mt-3 whitespace-pre-wrap text-sm text-slate-600">
                     {item.comment}
                   </p>
+                )}
+                {Array.isArray(item.evidence_uris) && item.evidence_uris.length > 0 && (
+                  <ul className="mt-3 space-y-1 text-sm">
+                    {item.evidence_uris.map((evidence, evidenceIndex) => (
+                      <li key={evidence.storage_path || evidence.file_url || evidenceIndex}>
+                        <a href={evidence.file_url} target="_blank" rel="noreferrer" className="font-semibold text-blue-700 underline">
+                          {evidence.file_name || `Evidence ${evidenceIndex + 1}`}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
                 )}
               </div>
             ))}

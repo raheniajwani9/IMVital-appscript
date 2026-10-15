@@ -38,13 +38,16 @@ export default function ActionHistoryView() {
           <div className="p-10 text-center text-sm text-slate-500"><History className="mx-auto mb-2 h-6 w-6 text-slate-300" />No action history yet.</div>
         ) : (
           <table className="w-full min-w-[700px] text-left text-sm">
-            <thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr>{['Date', 'Action', 'Audit', 'Change', 'Comment'].map((label) => <th key={label} className="px-4 py-3 font-bold">{label}</th>)}</tr></thead>
+            <thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr>{['Date', 'Action', 'Audit', 'Change', 'Comment', 'Evidence'].map((label) => <th key={label} className="px-4 py-3 font-bold">{label}</th>)}</tr></thead>
             <tbody className="divide-y divide-slate-100">{rows.map((row) => <tr key={row.id || `${row.action_id}-${row.created_at}`}>
               <td className="whitespace-nowrap px-4 py-3 text-slate-600">{row.created_at ? new Date(row.created_at).toLocaleString() : '—'}</td>
               <td className="px-4 py-3 font-semibold text-slate-800">{row.action_id || '—'}</td>
               <td className="px-4 py-3 text-slate-600">{row.audit_id || '—'}</td>
               <td className="px-4 py-3 text-slate-700">{row.old_status || 'NEW'} → {row.new_status || '—'}</td>
               <td className="max-w-sm px-4 py-3 text-slate-600">{row.comment || '—'}</td>
+              <td className="px-4 py-3 text-slate-600">{Array.isArray(row.evidence_uris) && row.evidence_uris.length > 0
+                ? row.evidence_uris.map((evidence, index) => <a key={evidence.storage_path || evidence.file_url || index} href={evidence.file_url} target="_blank" rel="noreferrer" className="mr-2 font-semibold text-blue-700 underline">{evidence.file_name || `Evidence ${index + 1}`}</a>)
+                : '—'}</td>
             </tr>)}</tbody>
           </table>
         )}

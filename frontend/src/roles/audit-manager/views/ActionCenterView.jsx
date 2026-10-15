@@ -10,7 +10,9 @@ import {
   UserRound,
   ClipboardCheck,
   Clock3,
-  ShieldCheck
+  ShieldCheck,
+  ArrowLeft,
+  ChevronRight
 } from 'lucide-react';
 
 import { supabase } from '../../../shared/lib/supabaseClient';
@@ -75,6 +77,8 @@ export default function ActionCenterView({ currentUser, initialStatus = 'PENDING
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
+  const [selectedActionId, setSelectedActionId] = useState(null);
+  const [historyByAction, setHistoryByAction] = useState({});
 
   const [search, setSearch] = useState('');
   // Open directly on owner-submitted requests so incoming work is immediately visible.
@@ -106,19 +110,23 @@ export default function ActionCenterView({ currentUser, initialStatus = 'PENDING
       if (actionIds.length) {
         const { data: history, error: historyError } = await supabase
           .from('action_history')
-          .select('action_id, new_status, comment, created_at')
+          .select('*')
           .in('action_id', actionIds)
           .order('created_at', { ascending: false });
 
         if (historyError) {
           console.error('Could not load action comments:', historyError);
+          setMessage(`Could not load action history: ${historyError.message}`);
         } else {
           historyRows = history || [];
         }
       }
 
       const ownerCommentByAction = new Map();
+      const groupedHistory = {};
       historyRows.forEach((entry) => {
+        groupedHistory[entry.action_id] ||= [];
+        groupedHistory[entry.action_id].push(entry);
         if (
           normalize(entry.new_status) === 'PENDING_VERIFICATION' &&
           !ownerCommentByAction.has(entry.action_id)
@@ -126,10 +134,12 @@ export default function ActionCenterView({ currentUser, initialStatus = 'PENDING
           ownerCommentByAction.set(entry.action_id, entry.comment || '');
         }
       });
+      setHistoryByAction(groupedHistory);
 
       setActions(rows.map((action) => ({
         ...action,
-        owner_comment: ownerCommentByAction.get(action.action_id) || ''
+        owner_comment:
+          ownerCommentByAction.get(action.action_id) || action.closure_comment || ''
       })));
     }
 
@@ -237,10 +247,25 @@ export default function ActionCenterView({ currentUser, initialStatus = 'PENDING
       return;
     }
 
+    const { error: historyError } = await supabase
+      .from('action_history')
+      .insert({
+        history_id: crypto.randomUUID(),
+        action_id: action.action_id,
+        audit_id: action.audit_id,
+        old_status: action.status || null,
+        new_status: nextStatus,
+        changed_by_email: currentUser?.email || null,
+        comment: comment.trim() || null,
+        created_at: new Date().toISOString()
+      });
+
     setSaving(false);
-    setMessage(`Action marked as ${nextStatus}.`);
 
     await loadActions();
+    setMessage(historyError
+      ? `Action updated, but its history could not be saved: ${historyError.message}`
+      : `Action marked as ${nextStatus}.`);
   };
 
   const summary = useMemo(() => {
@@ -263,6 +288,8 @@ export default function ActionCenterView({ currentUser, initialStatus = 'PENDING
       ).length
     };
   }, [actions]);
+
+  const selectedAction = actions.find((action) => action.action_id === selectedActionId);
 
   if (loading) {
     return (
@@ -302,6 +329,7 @@ export default function ActionCenterView({ currentUser, initialStatus = 'PENDING
         </div>
       )}
 
+      {!selectedAction && <>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <SummaryCard label="Total" value={summary.total} />
         <SummaryCard label="Open" value={summary.open} />
@@ -355,17 +383,58 @@ export default function ActionCenterView({ currentUser, initialStatus = 'PENDING
           </select>
         </div>
       </section>
+      </>}
 
-        <section className="space-y-3">
-        {filteredActions.length === 0 && (
-          <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center">
-            <p className="text-sm font-semibold text-slate-500">
-              No corrective actions found.
-            </p>
+      {!selectedAction && (
+        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[960px] text-left text-sm">
+              <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                <tr>
+                  {['Action', 'Audit', 'Owner', 'Location', 'Status', 'Priority', 'Submitted', ''].map((label) => (
+                    <th key={label || 'details'} className="px-4 py-3 font-bold">{label}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filteredActions.map((action) => (
+                  <tr key={action.action_id} className="hover:bg-slate-50">
+                    <td className="max-w-56 px-4 py-4 font-semibold text-slate-900">
+                      <span className="block truncate" title={action.title || action.action_title}>
+                        {action.title || action.action_title || 'Corrective action'}
+                      </span>
+                      <span className="block truncate text-xs font-normal text-slate-400">{action.action_id}</span>
+                    </td>
+                    <td className="px-4 py-4 text-slate-600">{action.audit_id || '—'}</td>
+                    <td className="max-w-48 truncate px-4 py-4 text-slate-600" title={action.owner_email || ''}>{action.owner_email || 'Unassigned'}</td>
+                    <td className="px-4 py-4 text-slate-600">{getPodName(locations, action.location_id)}</td>
+                    <td className="px-4 py-4">
+                      <span className={`rounded-md border px-2 py-1 text-xs font-bold ${STATUS_STYLES[normalize(action.status)] || 'border-slate-200 bg-slate-100 text-slate-600'}`}>
+                        {normalize(action.status).replaceAll('_', ' ')}
+                      </span>
+                    </td>
+                    <td className="px-4 py-4 text-slate-600">{action.priority || '—'}</td>
+                    <td className="px-4 py-4 text-slate-600">{formatDate(action.verification_requested_at || action.created_at)}</td>
+                    <td className="px-4 py-4 text-right">
+                      <button type="button" onClick={() => setSelectedActionId(action.action_id)} className="inline-flex items-center gap-1 rounded-lg border border-blue-200 px-3 py-2 font-bold text-blue-700 hover:bg-blue-50">
+                        Review <ChevronRight className="h-4 w-4" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-        )}
+          {filteredActions.length === 0 && <p className="p-8 text-center text-sm text-slate-500">No corrective actions found.</p>}
+        </section>
+      )}
 
-        {filteredActions.map((action) => {
+      {selectedAction && <section className="space-y-3">
+        <button type="button" onClick={() => setSelectedActionId(null)} className="inline-flex items-center gap-2 rounded-lg px-1 py-2 text-sm font-bold text-blue-700 hover:text-blue-900">
+          <ArrowLeft className="h-4 w-4" /> Back to action reviews
+        </button>
+
+        {[selectedAction].map((action) => {
           const status = normalize(action.status);
           const overdue = isOverdue(action);
           const isSelfOwned =
@@ -374,7 +443,12 @@ export default function ActionCenterView({ currentUser, initialStatus = 'PENDING
           const isVerificationRequest =
             ['PENDING_VERIFICATION', 'PENDING'].includes(status);
           const hasOwnerComment = Boolean(
-            String(action.verification_comment || action.owner_comment || '').trim()
+            String(
+              action.verification_comment ||
+              action.owner_comment ||
+              action.closure_comment ||
+              ''
+            ).trim()
           );
           const evidenceFiles = Array.isArray(action.closure_evidence_uris)
             ? action.closure_evidence_uris
@@ -425,6 +499,7 @@ export default function ActionCenterView({ currentUser, initialStatus = 'PENDING
                       action.action_description ||
                       'No description provided.'}
                   </p>
+                  <p className="mt-1 text-xs font-medium text-slate-400">{action.action_id}</p>
 
                   <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
                     <InfoItem label="Audit" value={action.audit_id || 'N/A'} />
@@ -457,7 +532,7 @@ export default function ActionCenterView({ currentUser, initialStatus = 'PENDING
 
                       <div className="text-xs text-slate-700">
                         <strong>Owner comment:</strong>
-                        <p className="mt-1 whitespace-pre-wrap">{action.verification_comment || action.owner_comment || 'No comment provided.'}</p>
+                        <p className="mt-1 whitespace-pre-wrap">{action.verification_comment || action.owner_comment || action.closure_comment || 'No comment provided.'}</p>
                       </div>
 
                       <div className="text-xs text-slate-700">
@@ -537,10 +612,46 @@ export default function ActionCenterView({ currentUser, initialStatus = 'PENDING
 
                 </div>
               </div>
+              <section className="mt-6 border-t border-slate-100 pt-5">
+                <h3 className="text-sm font-bold text-slate-900">Status history</h3>
+                <p className="mt-1 text-xs text-slate-500">Comments and evidence recorded for each action update.</p>
+                {(historyByAction[action.action_id] || []).length === 0 ? (
+                  <p className="mt-4 rounded-xl bg-slate-50 p-4 text-sm text-slate-500">No status history recorded for this action.</p>
+                ) : (
+                  <div className="mt-4 space-y-3">
+                    {historyByAction[action.action_id].map((entry, index) => {
+                      const historyEvidence = Array.isArray(entry.evidence_uris) ? entry.evidence_uris : [];
+                      return (
+                        <div key={entry.history_id || `${entry.created_at}-${index}`} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span className="text-sm font-bold text-slate-800">
+                              {normalize(entry.old_status || 'NEW').replaceAll('_', ' ')} → {normalize(entry.new_status).replaceAll('_', ' ')}
+                            </span>
+                            <span className="text-xs text-slate-500">{formatDate(entry.created_at)}</span>
+                          </div>
+                          <p className="mt-1 text-xs text-slate-500">{entry.changed_by_email || 'System'}</p>
+                          {entry.comment && <p className="mt-3 whitespace-pre-wrap text-sm text-slate-700">{entry.comment}</p>}
+                          {historyEvidence.length > 0 && (
+                            <ul className="mt-3 space-y-1 text-sm">
+                              {historyEvidence.map((evidence, evidenceIndex) => (
+                                <li key={evidence.storage_path || evidence.file_url || evidenceIndex}>
+                                  <a href={evidence.file_url} target="_blank" rel="noreferrer" className="font-semibold text-blue-700 underline">
+                                    {evidence.file_name || `Evidence ${evidenceIndex + 1}`}
+                                  </a>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </section>
             </article>
           );
         })}
-      </section>
+      </section>}
     </div>
   );
 }
